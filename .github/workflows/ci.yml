@@ -1,142 +1,128 @@
-name: CI
+name: Mika Dev APK
+run-name: Mika Dev WeChat unlock preview (3e24ca5)
 
-# 只做 CI：单元测试、Android 打包、CLI 契约和网关集成。发布（CD）仍是手工流程。
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# 同一个 PR 推新提交时取消上一次还没跑完的，main 上的推送各自跑完。
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: mika-dev-wechat-unlock-preview
+  cancel-in-progress: false
+
+env:
+  MIKA_SOURCE_SHA: 3e24ca52842ffb01a7a235592a5579fcd1b75047
+  MIKA_APK: Mika-Dev-wechat-unlock-3e24ca5.apk
+  MIKA_TAG: wechat-unlock-dev-3e24ca5
 
 jobs:
-  core:
-    name: core (JVM)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-      # 默认缓存策略：默认分支可写，其他分支（含 PR）只读。
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-provider: basic
-      - name: Unit tests
-        run: ./gradlew :core:test --stacktrace
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: core-test-results
-          path: |
-            core/build/test-results/test
-            core/build/reports/tests/test
-          retention-days: 7
-          if-no-files-found: ignore
-
-  cli:
-    name: cli (Python)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-provider: basic
-      # cliTest 先跑 cliContractTest（经真实子进程调 Python CLI），再跑 tools/mika/tests 下的 unittest。
-      - name: CLI tests
-        run: ./gradlew :core:cliTest -PmikaPython=python3 --stacktrace
-      - name: Translation tool tests
-        run: python3 -m unittest discover -s tools/i18n -v
-      - name: Translation resource checks
-        run: python3 tools/i18n/translations.py check
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: cli-test-results
-          path: |
-            core/build/test-results/cliContractTest
-            core/build/reports/tests/cliContractTest
-          retention-days: 7
-          if-no-files-found: ignore
-
-  app:
-    name: app (Android)
+  build:
+    name: Build and verify Mika Dev
+    if: github.repository == 'EvanDbg/Mika'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.MIKA_SOURCE_SHA }}
+          persist-credentials: false
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
-      # compileSdk 36；构建工具版本取 AGP 8.7.3 的默认值。action 顺带接受 SDK 许可。
       - uses: android-actions/setup-android@v4
         with:
           packages: "platform-tools platforms;android-36 build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
-      # assembleDebug 验证单测碰不到的打包路径：31MB 的 rootfs、jniLibs 旧式解压、AIDL、Compose。
-      # 编译设备测试以检查设置交互等回归用例；这里没有连接设备，不执行 instrumentation。
-      - name: Unit tests, debug build, and device test compilation
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:compileDebugAndroidTestKotlin --stacktrace
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-test-results
-          path: |
-            app/build/test-results/testDebugUnitTest
-            app/build/reports/tests/testDebugUnitTest
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Verify source and build the independently installable app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MIKA_SOURCE_SHA"
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug -PdevInstall --stacktrace
+      - name: Verify APK identity and signature and record SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import subprocess
 
-  relay:
-    name: relay (Go)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: tools/relay/go.mod
-          cache: true
-          cache-dependency-path: tools/relay/go.sum
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-provider: basic
-      # relayTest 会先 go build 出真实网关，再在回环上跑 Kotlin→网关→隧道全链路。
-      - name: Relay integration test
-        run: ./gradlew :core:relayTest --stacktrace
-      - name: Upload test reports
-        if: failure()
+          destination = Path("dist")
+          destination.mkdir()
+          apk = destination / os.environ["MIKA_APK"]
+          shutil.copyfile("app/build/outputs/apk/debug/app-debug.apk", apk)
+          build_tools = Path(os.environ["ANDROID_HOME"]) / "build-tools" / "35.0.0"
+          badging = subprocess.check_output([str(build_tools / "aapt"), "dump", "badging", str(apk)], text=True)
+          package = re.search(r"^package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'", badging, re.M)
+          assert package and package.groups() == ("com.wangzan101.mika.dev", "39", "0.1.38"), badging
+          assert "application-label:'Mika Dev'" in badging, badging
+          signature = subprocess.check_output([str(build_tools / "apksigner"), "verify", "--verbose", "--print-certs", str(apk)], text=True)
+          with apk.open("rb") as stream:
+              digest = hashlib.file_digest(stream, "sha256").hexdigest()
+          (destination / (apk.name + ".sha256")).write_text(f"{digest}  {apk.name}\n")
+          info = (
+              f"Source commit: {os.environ['MIKA_SOURCE_SHA']}\n"
+              f"Build run: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}\n"
+              "Application: Mika Dev\nPackage: com.wangzan101.mika.dev\nVersion: 0.1.38 (39)\n"
+              "Build: debug, -PdevInstall, independently installable alongside official Mika\n"
+              f"APK: {apk.name}\nBytes: {apk.stat().st_size}\nSHA-256: {digest}\n\n{signature}"
+          )
+          (destination / "build-info.txt").write_text(info)
+          print(info)
+          PY
+      - name: Upload verified APK
         uses: actions/upload-artifact@v7
         with:
-          name: relay-test-results
-          path: |
-            core/build/test-results/relayTest
-            core/build/reports/tests/relayTest
-          retention-days: 7
-          if-no-files-found: ignore
+          name: Mika-Dev-wechat-unlock-3e24ca5
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    name: Publish the downloadable preview
+    needs: build
+    if: github.repository == 'EvanDbg/Mika'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: Mika-Dev-wechat-unlock-3e24ca5
+          path: dist
+      - name: Publish a prerelease in this fork
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c "$MIKA_APK.sha256"
+          cat > release-notes.md <<'MD'
+          ## Mika Dev：微信任务唤醒与解锁试用版
+
+          基于已通过四组 CI 的功能提交 `3e24ca52842ffb01a7a235592a5579fcd1b75047`，对应上游 PR：https://github.com/wangzan101/Mika/pull/396 。
+
+          - 下载下面的单个 APK 后安装，应用名称为 **Mika Dev**，包名为 `com.wangzan101.mika.dev`，可与官方 Mika 同时安装。
+          - 这是调试签名的试用包。模型、手机控制、微信绑定和锁屏凭据需要在 Mika Dev 内重新配置。
+          - 在「连接电脑」中启用通用远程亮屏与解锁并按需保存本机锁屏凭据，再在「微信」中启用接收任务和「允许微信任务唤醒与解锁」。
+          - 微信解锁授权默认关闭；重新绑定会撤销授权。设备重启后的首次解锁仍需本人完成。
+          - 此构建运行了应用单元测试，并验证 APK 包名、版本、调试签名与 SHA-256；尚未进行真机微信解锁测试。
+          - `build-info.txt` 记录构建来源、包信息和签名验证；`.sha256` 文件用于核对 APK 完整性。
+          MD
+          gh release create "$MIKA_TAG" "$MIKA_APK" "$MIKA_APK.sha256" build-info.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$MIKA_SOURCE_SHA" \
+            --title "Mika Dev：微信任务唤醒与解锁试用版" \
+            --notes-file release-notes.md \
+            --prerelease
