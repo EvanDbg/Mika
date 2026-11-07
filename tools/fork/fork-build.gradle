@@ -1,0 +1,49 @@
+// Explicit opt-in for the independently installed, unsigned Mika Dev release.
+// Example: ./gradlew -I tools/fork/fork-build.gradle :app:assembleRelease \
+//   -PforkRepository=EvanDbg/Mika -PforkVersionCode=1000001 \
+//   -PforkVersionName=0.1.38-dev.1000001
+// Signing happens in a separate CI job; this build never needs the private key.
+gradle.beforeProject { project ->
+    if (project.path != ':app') return
+    project.pluginManager.withPlugin('com.android.application') {
+        project.extensions.getByName('androidComponents').finalizeDsl({ android ->
+            def required = { String name ->
+                def value = project.providers.gradleProperty(name).orNull
+                if (value == null || value.isEmpty()) {
+                    throw new GradleException("Missing -P${name} for the fork build")
+                }
+                value
+            }
+            def repository = required('forkRepository')
+            if (!(repository ==~ /[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._-]*/)) {
+                throw new GradleException('forkRepository must be a GitHub owner/repository')
+            }
+            def codeText = required('forkVersionCode')
+            if (!(codeText ==~ /[1-9][0-9]*/) || !codeText.isInteger()) {
+                throw new GradleException('forkVersionCode must be a positive integer')
+            }
+            def code = codeText.toInteger()
+            if (code > 2100000000 || code <= android.defaultConfig.versionCode) {
+                throw new GradleException('forkVersionCode must exceed the upstream version code and be at most 2100000000')
+            }
+            def version = required('forkVersionName')
+            def upstreamVersion = android.defaultConfig.versionName
+            if (!(upstreamVersion ==~ /[0-9]+\.[0-9]+\.[0-9]+/) || version != "${upstreamVersion}-dev.${code}") {
+                throw new GradleException('forkVersionName must be <upstream version>-dev.<forkVersionCode>')
+            }
+
+            android.defaultConfig.versionCode = code
+            android.defaultConfig.versionName = version
+            android.defaultConfig.buildConfigField('String', 'UPDATE_REPOSITORY', '"' + repository + '"')
+            android.defaultConfig.buildConfigField('boolean', 'UPDATE_PRERELEASES', 'true')
+            android.defaultConfig.buildConfigField('boolean', 'BETA', 'true')
+            android.buildTypes.configureEach { type ->
+                type.applicationIdSuffix = '.dev'
+                type.resValue('string', 'app_name', 'Mika Dev')
+            }
+            def release = android.buildTypes.getByName('release')
+            release.debuggable = false
+            release.signingConfig = null
+        } as org.gradle.api.Action)
+    }
+}

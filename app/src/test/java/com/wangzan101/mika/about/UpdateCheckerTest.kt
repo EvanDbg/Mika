@@ -40,10 +40,11 @@ class UpdateCheckerTest {
     @After
     fun stop() = server.shutdown()
 
-    private fun checker(current: String = "0.1.0") = UpdateChecker(
+    private fun checker(current: String = "0.1.0", dev: Boolean = false) = UpdateChecker(
         tmp.root.resolve("update.json"), current,
         releaseApi = server.url("/api").toString(),
         now = { clock },
+        includeDevReleases = dev,
     )
 
     private fun release(tag: String) =
@@ -150,5 +151,38 @@ class UpdateCheckerTest {
         assertFalse(UpdateSchedule.due(1_000, 1_000 + UpdateSchedule.MIN_GAP_MS - 1))
         assertTrue(UpdateSchedule.due(1_000, 1_000 + UpdateSchedule.MIN_GAP_MS))
         assertTrue("clock moved back", UpdateSchedule.due(10_000, 5_000))
+    }
+
+    @Test
+    fun devBuildFindsPrereleaseUpdatesAndClearsTheBadgeAfterUpgrade() = runTest {
+        github = MockResponse().setBody("""[
+            {"tag_name":"v0.1.38-dev.1000002","draft":false,"prerelease":true,
+             "assets":[{"name":"Mika-Dev-v0.1.38-dev.1000002.apk","browser_download_url":"https://github.com/EvanDbg/Mika/releases/download/v0.1.38-dev.1000002/Mika-Dev-v0.1.38-dev.1000002.apk"}]}
+        ]""")
+        val c = checker(current = "0.1.38-dev.1000001", dev = true)
+        c.check(manual = true)
+        assertEquals(CheckStatus.Done, c.state.value.status)
+        assertEquals("0.1.38-dev.1000002", c.state.value.update?.version)
+        assertEquals(listOf("/api"), hits)
+
+        val upgraded = checker(current = "0.1.38-dev.1000002", dev = true)
+        upgraded.load()
+        assertNotNull(upgraded.state.value.latest)
+        assertFalse(upgraded.state.value.hasUpdate)
+
+        github = MockResponse().setBody("[]")
+        c.check(manual = true)
+        assertEquals(CheckStatus.Failed, c.state.value.status)
+        assertEquals("0.1.38-dev.1000002", c.state.value.update?.version)
+    }
+
+    @Test
+    fun devChannelDoesNotFallBackToAnOfficialLatestResponse() = runTest {
+        github = release("v9.0.0")
+        val c = checker(current = "0.1.38-dev.1000001", dev = true)
+        c.check(manual = true)
+        assertEquals(CheckStatus.Failed, c.state.value.status)
+        assertNull(c.state.value.latest)
+        assertEquals(listOf("/api"), hits)
     }
 }

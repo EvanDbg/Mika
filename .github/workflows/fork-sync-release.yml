@@ -1,0 +1,293 @@
+name: Mika Dev upstream sync and release
+run-name: Mika Dev upstream main · ${{ github.run_number }}
+
+on:
+  schedule:
+    # UTC，每两小时检查一次，避开整点；期间新增的上游提交合并为一次构建。
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同步、签名、发布共享一把锁；新检查不能取消正在发布的版本。
+concurrency:
+  group: mika-dev-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare and merge the upstream candidate
+    if: github.repository == 'EvanDbg/Mika' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      source_sha: ${{ steps.prepare.outputs.source_sha }}
+      base_sha: ${{ steps.prepare.outputs.base_sha }}
+      upstream_sha: ${{ steps.prepare.outputs.upstream_sha }}
+      candidate_branch: ${{ steps.prepare.outputs.candidate_branch }}
+      build: ${{ steps.prepare.outputs.build }}
+      version_code: ${{ steps.prepare.outputs.version_code }}
+      version_name: ${{ steps.prepare.outputs.version_name }}
+      tag: ${{ steps.prepare.outputs.tag }}
+    steps:
+      # 控制脚本始终取本次运行开始时的 main；不执行候选提交里的发布脚本。
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test the release automation
+        run: python3 -m unittest discover -s tools/fork -p 'test_*.py' -v
+      - name: Prepare a pinned merge and release plan
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/fork/release.py prepare
+      - name: Upload the release plan
+        if: steps.prepare.outputs.build == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mika-dev-plan
+          path: plan.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  core:
+    name: core (JVM)
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: Unit tests
+        run: ./gradlew :core:test --stacktrace
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-core-test-results
+          path: |
+            core/build/test-results/test
+            core/build/reports/tests/test
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  cli:
+    name: cli (Python)
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: CLI tests
+        run: ./gradlew :core:cliTest -PmikaPython=python3 --stacktrace
+      - name: Translation tool tests
+        run: python3 -m unittest discover -s tools/i18n -v
+      - name: Translation resource checks
+        run: python3 tools/i18n/translations.py check
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-cli-test-results
+          path: |
+            core/build/test-results/cliContractTest
+            core/build/reports/tests/cliContractTest
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  relay:
+    name: relay (Go)
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: tools/relay/go.mod
+          cache: true
+          cache-dependency-path: tools/relay/go.sum
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: Relay integration test
+        run: ./gradlew :core:relayTest --stacktrace
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-relay-test-results
+          path: |
+            core/build/test-results/relayTest
+            core/build/reports/tests/relayTest
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  app:
+    name: app (Android release APKs)
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      # APK 使用独立包名和递增版本；设备测试只编译，未连接真机。
+      # 本任务不接触签名私钥，产物留到独立任务签名。
+      - name: Unit tests, device test compilation, and unsigned release build
+        env:
+          FORK_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          FORK_VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
+        run: >-
+          ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleRelease
+          -I control/tools/fork/fork-build.gradle
+          -PforkRepository=EvanDbg/Mika
+          "-PforkVersionCode=$FORK_VERSION_CODE"
+          "-PforkVersionName=$FORK_VERSION_NAME"
+          --stacktrace
+      - name: Upload unsigned universal and arm64 APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: mika-dev-unsigned
+          path: |
+            app/build/outputs/apk/release/app-universal-release-unsigned.apk
+            app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+          if-no-files-found: error
+          overwrite: true
+          compression-level: 0
+          retention-days: 14
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fork-app-test-results
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  sign_publish:
+    name: Sign, verify, and publish Mika Dev
+    needs: [prepare, core, cli, relay, app]
+    if: github.repository == 'EvanDbg/Mika' && github.ref == 'refs/heads/main' && needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: mika-dev-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;35.0.0"
+      - uses: actions/download-artifact@v7
+        with:
+          name: mika-dev-plan
+          path: incoming/plan
+      - uses: actions/download-artifact@v7
+        with:
+          name: mika-dev-unsigned
+          path: incoming/apk
+      # 只有本步骤读取长期签名密钥；不执行候选提交的 Gradle 或脚本。
+      - name: Sign and verify both APKs
+        env:
+          MIKA_DEV_KEYSTORE_BASE64: ${{ secrets.MIKA_DEV_KEYSTORE_BASE64 }}
+          MIKA_DEV_KEYSTORE_PASSWORD: ${{ secrets.MIKA_DEV_KEYSTORE_PASSWORD }}
+        run: >-
+          python3 control/tools/fork/release.py sign
+          --plan incoming/plan/plan.json --input incoming/apk --output dist
+      - name: Promote the verified source and publish the release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python3 control/tools/fork/release.py publish
+          --plan incoming/plan/plan.json --dist dist
+
+  cleanup:
+    name: Clean up the temporary candidate
+    needs: [prepare, core, cli, relay, app, sign_publish]
+    if: always() && github.repository == 'EvanDbg/Mika' && github.ref == 'refs/heads/main' && needs.prepare.outputs.candidate_branch != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          persist-credentials: false
+      - name: Delete only this run's candidate branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CANDIDATE_BRANCH: ${{ needs.prepare.outputs.candidate_branch }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: python3 control/tools/fork/release.py cleanup

@@ -8,24 +8,30 @@ import org.junit.rules.TemporaryFolder
 
 class ApkIntegrityTest {
     @get:Rule val temp = TemporaryFolder()
+    private val releasePath = MikaLinks.RELEASES.removePrefix("https://github.com")
 
     @Test fun acceptsOfficialApk() {
-        ApkIntegrity.requireOfficialUrl("https://github.com/wangzan101/Mika/releases/download/v0.2.0/Mika.apk")
+        ApkIntegrity.requireOfficialUrl("${MikaLinks.RELEASES}/download/v0.2.0/Mika.apk")
     }
 
     @Test fun rejectsUntrustedDownloads() {
         for (url in listOf(
-            "http://github.com/wangzan101/Mika/releases/download/v0.2.0/Mika.apk",
-            "https://github.com.evil.test/wangzan101/Mika/releases/download/v0.2.0/Mika.apk",
-            "https://github.com/other/Mika/releases/download/v0.2.0/Mika.apk",
-            "https://github.com/wangzan101/Mika/releases/download/../../other.apk",
-            "https://github.com/wangzan101/Mika/releases/download/%2e%2e/%2E%2e/%2e%2e/%2e%2e/other/x.apk",
-            "https://objects.githubusercontent.com/wangzan101/Mika/releases/download/v0.2.0/Mika.apk",
-            "https://github.com/wangzan101/Mika/releases/download/v0.2.0/Mika.zip",
-            "https://github.com/wangzan101/Mika/releases/tag/v0.2.0",
-            "https://user:pass@github.com/wangzan101/Mika/releases/download/v0.2.0/Mika.apk",
-            "https://github.com:8443/wangzan101/Mika/releases/download/v0.2.0/Mika.apk",
+            "http://github.com$releasePath/download/v0.2.0/Mika.apk",
+            "https://github.com.evil.test$releasePath/download/v0.2.0/Mika.apk",
+            "${MikaLinks.REPO}-other/releases/download/v0.2.0/Mika.apk",
+            "https://github.com$releasePath/download/../../other.apk",
+            "https://github.com$releasePath/download/%2e%2e/%2E%2e/%2e%2e/%2e%2e/other/x.apk",
+            "https://objects.githubusercontent.com$releasePath/download/v0.2.0/Mika.apk",
+            "https://github.com$releasePath/download/v0.2.0/Mika.zip",
+            "https://github.com$releasePath/tag/v0.2.0",
+            "https://user:pass@github.com$releasePath/download/v0.2.0/Mika.apk",
+            "https://github.com:8443$releasePath/download/v0.2.0/Mika.apk",
         )) rejects { ApkIntegrity.requireOfficialUrl(url) }
+    }
+
+    @Test fun refusesOtherUpdateChannelsEvenWhenBothAreMikaBuilds() {
+        val otherRepo = if (MikaLinks.REPO == "https://github.com/wangzan101/Mika") "EvanDbg/Mika" else "wangzan101/Mika"
+        rejects { ApkIntegrity.requireOfficialUrl("https://github.com/$otherRepo/releases/download/v0.2.0/Mika.apk") }
     }
 
     @Test fun verifiesSizeAndDigestAndRejectsPartialOrModifiedFiles() {

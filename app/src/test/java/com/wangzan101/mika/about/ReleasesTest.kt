@@ -98,4 +98,49 @@ class ReleasesTest {
         assertEquals(r.pageUrl, r.downloadUrl)
         assertEquals("https://github.com/x/Mika-v0.1.40-arm64.apk", Releases.fromGitHub(only, listOf("arm64-v8a")).apkUrl)
     }
+
+    private fun devRelease(
+        tag: String,
+        draft: Boolean = false,
+        prerelease: Boolean = true,
+        apk: Boolean = true,
+        arm64Only: Boolean = false,
+    ): String {
+        val asset = if (arm64Only) "Mika-Dev-$tag-arm64.apk" else "Mika-Dev-$tag.apk"
+        val assets = if (apk) """[{"name":"$asset","browser_download_url":"https://github.com/EvanDbg/Mika/releases/download/$tag/$asset","size":100}]""" else "[]"
+        return """{"tag_name":"$tag","draft":$draft,"prerelease":$prerelease,"assets":$assets}"""
+    }
+
+    @Test
+    fun devChannelSelectsHighestVersionAndSkipsUnpublishedOrUnrelatedBuilds() {
+        val text = listOf(
+            devRelease("v0.1.38-dev.1000010"),
+            devRelease("v9.0.0-dev.1000100", draft = true),
+            devRelease("v9.0.0"),
+            devRelease("wechat-unlock-dev-3e24ca5"),
+            devRelease("v9.0.0-dev.1000101", prerelease = false),
+            devRelease("v9.0.0-dev.1000102", apk = false),
+            devRelease("v9.0.0-dev.2147483648"),
+            devRelease("v0.1.38-dev.1000009"), // API 的顺序不能变成版本排序。
+        ).joinToString(prefix = "[", postfix = "]")
+        val found = Releases.fromGitHubDevList(text)!!
+        assertEquals("0.1.38-dev.1000010", found.version)
+        assertEquals("https://github.com/EvanDbg/Mika/releases/download/v0.1.38-dev.1000010/Mika-Dev-v0.1.38-dev.1000010.apk", found.apkUrl)
+    }
+
+    @Test
+    fun devChannelRequiresAnApkCompatibleWithTheDevice() {
+        val text = "[${devRelease("v0.1.38-dev.1000001")},${devRelease("v0.1.38-dev.1000002", arm64Only = true)}]"
+        assertEquals("0.1.38-dev.1000002", Releases.fromGitHubDevList(text, listOf("arm64-v8a"))?.version)
+        assertEquals("0.1.38-dev.1000001", Releases.fromGitHubDevList(text, listOf("x86_64"))?.version)
+    }
+
+    @Test
+    fun malformedDevEntryDoesNotHideAnotherValidRelease() {
+        val valid = devRelease("v0.1.38-dev.1000001")
+        val text = """[null,{"tag_name":"v9.0.0-dev.1000002","draft":false,"prerelease":true,"assets":[null]},$valid]"""
+        assertEquals("0.1.38-dev.1000001", Releases.fromGitHubDevList(text)?.version)
+        assertNull(Releases.fromGitHubDevList("[]"))
+        assertNull(Releases.fromGitHubDevList("[${devRelease("v0.1.38-dev.1000001", draft = true)}]"))
+    }
 }

@@ -38,4 +38,11 @@ class AppVersionTest {
     fun buildMetadataIgnored() {
         assertEquals(0, AppVersion.compare("0.2.0+65fcf92", "0.2.0"))
     }
+
+    @Test
+    fun consecutiveDevBuildsAreUpdatesWithoutAnUpstreamVersionBump() {
+        assertTrue(AppVersion.isNewer("v0.1.38-dev.1000010", "0.1.38-dev.1000009"))
+        assertFalse(AppVersion.isNewer("v0.1.38-dev.1000010", "0.1.38-dev.1000010"))
+        assertTrue(AppVersion.isNewer("v0.1.39-dev.1000011", "0.1.38-dev.1000010"))
+    }
 }

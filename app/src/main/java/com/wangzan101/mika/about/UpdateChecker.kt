@@ -64,6 +64,8 @@ class UpdateChecker(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     /** 本机支持的 ABI(Build.SUPPORTED_ABIS),用来挑发布里合适的 APK;为空时取全架构包。 */
     private val deviceAbis: List<String> = emptyList(),
+    /** 官方读取 latest;Fork 读取发布列表中的 dev 预发布。 */
+    private val includeDevReleases: Boolean = MikaLinks.INCLUDE_DEV_RELEASES,
 ) {
     private val _state = MutableStateFlow(UpdateState())
     val state: StateFlow<UpdateState> = _state.asStateFlow()
@@ -112,7 +114,11 @@ class UpdateChecker(
     }
 
     /** GitHub 上最新的发布;没查到为空。 */
-    internal fun fetchLatest(): ReleaseInfo? = runCatching { Releases.fromGitHub(get(releaseApi), deviceAbis) }.getOrNull()
+    internal fun fetchLatest(): ReleaseInfo? = runCatching {
+        val response = get(releaseApi)
+        if (includeDevReleases) Releases.fromGitHubDevList(response, deviceAbis)
+        else Releases.fromGitHub(response, deviceAbis)
+    }.getOrNull()
 
     private fun get(url: String): String {
         val req = Request.Builder().url(url)

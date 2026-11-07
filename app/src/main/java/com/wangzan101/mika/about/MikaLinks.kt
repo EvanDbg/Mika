@@ -1,18 +1,21 @@
 package com.wangzan101.mika.about
 
+import com.wangzan101.mika.BuildConfig
 import com.wangzan101.mika.R
 import com.wangzan101.mika.i18n.tr
 import java.net.URLEncoder
 
-/** Mika 对外的地址都在这里:仓库、问题、检查更新用的两个来源。换地址只改这一处。 */
+/** Mika 对外的地址都在这里;普通构建指向官方,Fork 构建使用自己的发布与反馈入口。 */
 object MikaLinks {
-    const val REPO = "https://github.com/wangzan101/Mika"
-    const val REPO_LABEL = "github.com/wangzan101/Mika"
+    const val REPO_LABEL = "github.com/${BuildConfig.UPDATE_REPOSITORY}"
+    const val REPO = "https://$REPO_LABEL"
     const val README = "$REPO#readme"
     const val RELEASES = "$REPO/releases"
     const val NEW_ISSUE = "$REPO/issues/new"
-    /** 检查更新只问 GitHub 发布页(不登录,每小时有次数限制)。 */
-    const val LATEST_RELEASE_API = "https://api.github.com/repos/wangzan101/Mika/releases/latest"
+    const val INCLUDE_DEV_RELEASES = BuildConfig.UPDATE_PRERELEASES
+    /** latest 不包含预发布;Fork 的 main 自动构建从列表中选自己的 dev 版本。 */
+    val LATEST_RELEASE_API = "https://api.github.com/repos/${BuildConfig.UPDATE_REPOSITORY}/releases" +
+        if (INCLUDE_DEV_RELEASES) "?per_page=100" else "/latest"
 
     /** 反馈时预先填进问题模板的设备与版本信息。 */
     data class Device(

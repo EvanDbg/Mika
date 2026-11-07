@@ -22,6 +22,9 @@ android {
         versionName = "0.1.38"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
+        // Fork 的自动构建通过 tools/fork/fork-build.gradle 单独覆盖;普通构建仍跟随官方发布。
+        buildConfigField("String", "UPDATE_REPOSITORY", "\"wangzan101/Mika\"")
+        buildConfigField("boolean", "UPDATE_PRERELEASES", "false")
         // 关于页版本号后的 Beta 标记;出正式版时改成 false
         buildConfigField("boolean", "BETA", "true")
     }

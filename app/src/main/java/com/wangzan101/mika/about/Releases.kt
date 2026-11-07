@@ -3,6 +3,7 @@ package com.wangzan101.mika.about
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -41,8 +42,30 @@ object Releases {
     private val ABI_APK_SUFFIX = mapOf("arm64-v8a" to "arm64")
 
     /** [deviceAbis] 是本机支持的 ABI,按偏好排序(Build.SUPPORTED_ABIS);为空时只取全架构包。 */
-    fun fromGitHub(text: String, deviceAbis: List<String> = emptyList()): ReleaseInfo {
-        val o = json.parseToJsonElement(text).jsonObject
+    fun fromGitHub(text: String, deviceAbis: List<String> = emptyList()): ReleaseInfo =
+        fromGitHubObject(json.parseToJsonElement(text).jsonObject, deviceAbis)
+
+    /**
+     * Fork 的 main 自动版使用 v<上游版本>-dev.<versionCode> 标签,并标为预发布。
+     * 不依赖接口顺序:重新发布的旧版本不能盖过新版;草稿、其他标签和没有可用 APK 的发布都跳过。
+     * 没有合适版本时返回空,调用方保留上次查到的更新信息。
+     */
+    fun fromGitHubDevList(text: String, deviceAbis: List<String> = emptyList()): ReleaseInfo? =
+        json.parseToJsonElement(text).jsonArray.asSequence()
+            .mapNotNull { it as? JsonObject }
+            .filter { o ->
+                (o["draft"] as? JsonPrimitive)?.booleanOrNull == false &&
+                    (o["prerelease"] as? JsonPrimitive)?.booleanOrNull == true &&
+                    DEV_TAG.matches(o.str("tag_name").orEmpty()) &&
+                    o.str("tag_name")?.substringAfterLast('.')?.toIntOrNull()?.let { it in 1..2100000000 } == true
+            }
+            .mapNotNull { o -> runCatching { fromGitHubObject(o, deviceAbis) }.getOrNull() }
+            .filter { !it.apkUrl.isNullOrBlank() }
+            .maxWithOrNull { a, b -> AppVersion.compare(a.version, b.version) }
+
+    private val DEV_TAG = Regex("""v[0-9]+\.[0-9]+\.[0-9]+-dev\.[1-9][0-9]*""")
+
+    private fun fromGitHubObject(o: JsonObject, deviceAbis: List<String>): ReleaseInfo {
         val tag = o.str("tag_name") ?: error("no tag_name")
         val body = o.str("body").orEmpty()
         val apk = o["assets"]?.let { a ->
