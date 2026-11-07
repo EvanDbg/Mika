@@ -12,7 +12,7 @@
 - 定时工作流必须保留在默认分支 `main`，并且仓库 Actions 处于启用状态。
 - 没有需要发布的新源码时，流程跳过构建。上次构建或发布失败、当前源码尚未成功发布时，下一次检查仍会重试。
 
-工作流通过 GitHub 合并 API 将固定的上游提交合入临时候选分支。正常合并保留 fork 的功能改动与双方提交历史；代码冲突或 GitHub 权限限制会停止本轮，必须处理原因后再运行。流程不强制覆盖分支，也不自动选择一方来消除冲突。
+工作流在临时 checkout 中将固定的上游提交正常 Git merge 到 fork 源码，再以非强制推送保存到本轮候选分支。正常合并保留 fork 的功能改动与双方提交历史；代码冲突或 GitHub 权限限制会停止本轮，必须处理原因后再运行。流程不强制覆盖分支，也不自动选择一方来消除冲突。
 
 工作流使用同一个并发组串行执行。新的检查不会取消正在构建或发布的版本；后续检查会读取当时的最新上游状态。
 
@@ -36,7 +36,7 @@
 
 Mika Dev 使用独立包名 `com.wangzan101.mika.dev`，可与官方 Mika 并排安装。两个 APK 都是完整安装包：arm64 设备可下载较小的 arm64 版，也可安装通用版；无需同时安装两个文件。
 
-每次新发布分配独立递增的 Android `versionCode`，从 `1000001` 开始，并以此前自动发布的版本序列为基准继续增加。上游没有修改自己的版本号，也能得到可以覆盖安装的新构建。显示版本和标签保留上游版本及 fork 序号，例如：
+每次新发布分配独立递增的 Android `versionCode`，从 `1000001` 开始，并以此前自动发布的版本序列为基准继续增加；draft 和已经创建的标签也预留对应编号。上游没有修改自己的版本号，也能得到可以覆盖安装的新构建。显示版本和标签保留上游版本及 fork 序号，例如：
 
 ```text
 上游版本：0.1.38
@@ -66,11 +66,11 @@ fork 构建配置将应用内更新源指向 `EvanDbg/Mika`，并保持下载地
 | `MIKA_DEV_KEYSTORE_BASE64` | 专用签名 keystore 的 Base64 内容 |
 | `MIKA_DEV_KEYSTORE_PASSWORD` | keystore 密码 |
 
-私钥和密码不得放入源码、日志、Release 或公开 artifact。签名材料只提供给独立签名步骤；发布步骤使用本次工作的 GitHub 令牌，应用构建无需访问签名材料。维护者应安全保存签名备份，避免遗失后无法继续为已安装应用签发更新。
+该 environment 的部署分支规则限定为 `main`。私钥和密码不得放入源码、日志、Release 或公开 artifact。签名材料只提供给独立签名步骤；发布步骤使用本次工作的 GitHub 令牌，应用构建无需访问签名材料。维护者应安全保存签名备份，避免遗失后无法继续为已安装应用签发更新。
 
 准备、发布及清理任务按需使用 `contents: write`；应用构建与测试使用 `contents: read`。所有 checkout 都关闭凭证持久化。控制脚本和构建来源分别固定到明确提交，不通过推送事件启动下一个工作流：使用 `GITHUB_TOKEN` 的推送不会自动触发 `on: push`，因此所有阶段由本工作流的任务依赖串联。
 
-上游修改 `.github/workflows` 时，GitHub 可能对合并或分支推进施加额外权限限制。如果出现权限拒绝，本轮会失败并保留现状；应检查 GitHub 返回的错误，再决定如何维护 fork 的工作流。不要通过放宽无关权限或忽略错误来继续发布。
+仓库自带的 `GITHUB_TOKEN` 不具备改写工作流文件的权限。若候选合并会改变 `.github/workflows`，本流程在推送前停止，保留现有 `main` 和 Release，交由维护者检查并正常合并相关工作流调整。这些调整处理完成后，源码自动同步与发布继续运行。其他 GitHub 权限拒绝同样停止本轮；不要通过放宽无关权限或忽略错误来继续发布。
 
 ## 常见维护操作
 
@@ -89,6 +89,6 @@ GitHub 会在公开仓库连续 60 天没有活动时自动停用定时工作流
 ## 参考
 
 - [GitHub 定时工作流](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
-- [GitHub 合并 API](https://docs.github.com/en/rest/branches/branches)
+- [GitHub 工作流令牌权限](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)
 - [GITHUB_TOKEN 与工作流触发](https://docs.github.com/en/actions/concepts/security/github_token)
 - [Android 应用更新条件](https://developer.android.com/google/play/app-updates)

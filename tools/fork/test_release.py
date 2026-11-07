@@ -81,6 +81,7 @@ class FakeGitHub:
         self.conflict = conflict
         self.calls = []
         self.commands = []
+        self.merges = []
         self.on_upload = None
 
     def api(self, path, *, method="GET", payload=None, paginate=False):
@@ -101,11 +102,6 @@ class FakeGitHub:
                 raise release.GitHubError("Reference already exists (HTTP 422)", 422)
             self.refs[key] = payload["sha"]
             return {"object": {"type": "commit", "sha": payload["sha"]}}
-        if path == root + "/merges" and method == "POST":
-            if self.conflict:
-                raise release.GitHubError("Merge conflict (HTTP 409)", 409)
-            self.refs[(release.REPOSITORY, "heads/" + payload["base"])] = SOURCE
-            return {"sha": SOURCE}
         if path == root + "/releases?per_page=100" and paginate:
             return deepcopy(self.releases)
         if path == root + "/tags?per_page=100" and paginate:
@@ -134,6 +130,13 @@ class FakeGitHub:
     def read_release_info(self, tag):
         self.info_reads.append(tag)
         return self.info_files[tag]
+
+    def merge_candidate(self, branch, base_sha, upstream_sha):
+        self.merges.append((branch, base_sha, upstream_sha))
+        if self.conflict:
+            raise release.ReleaseError("Upstream merge conflicts require review; main and published APKs were not changed.")
+        self.refs[(release.REPOSITORY, "heads/" + branch)] = SOURCE
+        return SOURCE
 
     def release_command(self, *args):
         self.commands.append(args)
@@ -262,6 +265,7 @@ class PrepareTest(unittest.TestCase):
                 self.assertEqual(value["source_sha"], BASE)
                 self.assertEqual(value["candidate_branch"], "")
                 self.assertTrue(all(method == "GET" for method, _, _ in client.calls))
+                self.assertEqual(client.merges, [])
 
     def test_published_current_source_skips_without_creating_a_candidate(self):
         item = published(plan())
@@ -354,7 +358,23 @@ class PrepareTest(unittest.TestCase):
         self.assertEqual(value["candidate_branch"], "automation/candidate-12345-1")
         self.assertEqual(client.refs[(release.REPOSITORY, "heads/main")], BASE)
         self.assertFalse(any(method in {"PATCH", "DELETE"} for method, _, _ in client.calls))
+        self.assertEqual(client.merges, [(value["candidate_branch"], BASE, UPSTREAM)])
         self.assertIn(f"/compare/{BASE}...{SOURCE}", release.notes(value))
+
+    def test_remote_candidate_must_match_the_locally_merged_commit(self):
+        client = FakeGitHub(status="diverged")
+
+        def changed_candidate(branch, _base, _upstream):
+            client.refs[(release.REPOSITORY, "heads/" + branch)] = OTHER
+            return SOURCE
+
+        client.merge_candidate = changed_candidate
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            with self.assertRaisesRegex(release.ReleaseError, "does not match the local merge"):
+                release.prepare(client, environment(directory), directory / "plan.json")
+            self.assertIn("source_sha=" + SOURCE, (directory / "outputs").read_text())
+        self.assertEqual(client.refs[(release.REPOSITORY, "heads/main")], BASE)
 
     def test_orphan_tag_reserves_version_even_after_the_source_has_changed(self):
         client = FakeGitHub(status="diverged")
@@ -597,6 +617,122 @@ class CleanupAndLoggingTest(unittest.TestCase):
             with self.assertRaises(release.ReleaseError) as caught:
                 release.command(["apksigner", "sign", "private-value"], label="APK signing")
         self.assertEqual(str(caught.exception), "APK signing failed (exit 1).")
+
+    def test_git_failure_details_are_redacted_and_timeouts_are_bounded(self):
+        secret_env = {"GITHUB_TOKEN": "test-token-only"}
+        failed = subprocess.CompletedProcess([], 128, "merge output", "fatal: denied test-token-only")
+        with patch("subprocess.run", return_value=failed):
+            with self.assertRaises(release.ReleaseError) as caught:
+                release.git_command(["push", "origin"], env=secret_env)
+        self.assertIn("fatal: denied", str(caught.exception))
+        self.assertNotIn("test-token-only", str(caught.exception))
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(["git"], 120)):
+            with self.assertRaisesRegex(release.ReleaseError, "timed out after 120 seconds"):
+                release.git_command(["fetch", "origin"], env={})
+
+    def test_candidate_push_uses_temporary_askpass_and_no_force(self):
+        for fail_push in (False, True):
+            with self.subTest(fail_push=fail_push):
+                askpass_paths = []
+
+                def fake_git(args, *, env, timeout=120):
+                    self.assertNotIn("test-token-only", args)
+                    if args[0] == "clone":
+                        Path(args[-1]).mkdir()
+                    if "push" in args:
+                        self.assertNotIn("--force", args)
+                        self.assertNotIn("--force-with-lease", args)
+                        self.assertEqual(args[-1], "HEAD:refs/heads/automation/candidate-12345-1")
+                        self.assertEqual(env["GITHUB_TOKEN"], "test-token-only")
+                        askpass = Path(env["GIT_ASKPASS"])
+                        askpass_paths.append(askpass)
+                        self.assertEqual(askpass.stat().st_mode & 0o777, 0o700)
+                        text = askpass.read_text()
+                        self.assertIn("$GITHUB_TOKEN", text)
+                        self.assertNotIn("test-token-only", text)
+                        if fail_push:
+                            raise release.ReleaseError("Git operation failed (exit 128): rejected")
+                    else:
+                        self.assertNotIn("GITHUB_TOKEN", env)
+                        self.assertNotIn("GH_TOKEN", env)
+                    return ""
+
+                with patch.dict(os.environ, {"GITHUB_TOKEN": "test-token-only", "GITHUB_RUN_ID": "12345", "GITHUB_RUN_ATTEMPT": "1"}), \
+                     patch.object(release, "git_command", side_effect=fake_git), \
+                     patch.object(release, "merge_local", return_value=SOURCE), \
+                     patch.object(release, "emit_outputs") as outputs:
+                    if fail_push:
+                        with self.assertRaisesRegex(release.ReleaseError, "rejected"):
+                            release.GitHub().merge_candidate("automation/candidate-12345-1", BASE, UPSTREAM)
+                    else:
+                        self.assertEqual(release.GitHub().merge_candidate("automation/candidate-12345-1", BASE, UPSTREAM), SOURCE)
+                    self.assertEqual(outputs.call_args.args[0], {"source_sha": SOURCE})
+                self.assertEqual(len(askpass_paths), 1)
+                self.assertFalse(askpass_paths[0].exists())
+                self.assertFalse(askpass_paths[0].parent.exists())
+
+
+class LocalGitMergeTest(unittest.TestCase):
+    """Exercise real Git merge semantics in disposable local repositories."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.repository = Path(self.temporary.name) / "repo"
+        subprocess.run(["git", "init", "--initial-branch=main", str(self.repository)], check=True, capture_output=True, timeout=20)
+        self.git("config", "user.name", "Fixture Author")
+        self.git("config", "user.email", "fixture@example.test")
+        self.git("config", "commit.gpgsign", "false")
+        (self.repository / "shared.txt").write_text("base\n")
+        workflow = self.repository / ".github/workflows/ci.yml"
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("name: CI\n")
+        self.git("add", ".")
+        self.git("commit", "-m", "shared ancestor")
+        self.common = self.git("rev-parse", "HEAD")
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def git(self, *args):
+        result = subprocess.run(["git", "-C", str(self.repository), *args],
+                                check=True, text=True, capture_output=True, timeout=20,
+                                env=release.public_git_env(os.environ))
+        return result.stdout.strip()
+
+    def branch(self, name, changes):
+        self.git("checkout", "-b", name, self.common)
+        for name, content in changes.items():
+            path = self.repository / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        self.git("add", ".")
+        self.git("commit", "-m", name)
+        return self.git("rev-parse", "HEAD")
+
+    def test_merge_preserves_fork_and_upstream_history_and_source(self):
+        fork = self.branch("fork", {"wechat.txt": "independent authorization\n"})
+        upstream = self.branch("upstream", {"upstream.txt": "new upstream feature\n"})
+        merged = release.merge_local(self.repository, fork, upstream)
+        self.assertEqual(self.git("rev-list", "--parents", "-n", "1", merged).split()[1:], [fork, upstream])
+        self.assertEqual((self.repository / "wechat.txt").read_text(), "independent authorization\n")
+        self.assertEqual((self.repository / "upstream.txt").read_text(), "new upstream feature\n")
+        self.assertEqual(self.git("show", "-s", "--format=%an <%ae>", merged),
+                         "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>")
+
+    def test_conflicting_application_changes_stop_without_choosing_a_side(self):
+        fork = self.branch("fork", {"shared.txt": "fork edit\n"})
+        upstream = self.branch("upstream", {"shared.txt": "upstream edit\n"})
+        with self.assertRaisesRegex(release.ReleaseError, "merge conflicts require review"):
+            release.merge_local(self.repository, fork, upstream)
+        self.assertEqual(self.git("rev-parse", "HEAD"), fork)
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U"), "shared.txt")
+
+    def test_upstream_workflow_changes_stop_before_candidate_can_be_pushed(self):
+        fork = self.branch("fork", {"wechat.txt": "independent authorization\n"})
+        upstream = self.branch("upstream", {".github/workflows/ci.yml": "name: Changed CI\n"})
+        with self.assertRaisesRegex(release.ReleaseError, r"changes \.github/workflows"):
+            release.merge_local(self.repository, fork, upstream)
+        self.assertEqual(self.git("rev-parse", "refs/heads/fork"), fork)
 
 
 if __name__ == "__main__":

@@ -70,6 +70,62 @@ def command(args: list[str], *, env: Mapping[str, str] | None = None,
     return result.stdout
 
 
+def public_git_env(env: Mapping[str, str]) -> dict[str, str]:
+    clean = {key: value for key, value in env.items()
+             if key not in {KEYSTORE_SECRET, PASSWORD_SECRET, "GH_TOKEN", "GITHUB_TOKEN",
+                            "GIT_ASKPASS", "SSH_ASKPASS", "GIT_CURL_VERBOSE"}
+             and not key.startswith("GIT_TRACE")}
+    # Public fetches need no account credentials. Do not inherit credential
+    # helpers or store an authentication header in the temporary clone.
+    clean.update(GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    return clean
+
+
+def git_command(args: list[str], *, env: Mapping[str, str], timeout: int = 120) -> str:
+    try:
+        result = subprocess.run(["git", *args], text=True, capture_output=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise ReleaseError(f"Git operation timed out after {timeout} seconds; the candidate was not approved for publication.") from exc
+    if result.returncode:
+        detail = redact(redact((result.stdout + "\n" + result.stderr).strip(), env))[:4000]
+        raise ReleaseError(f"Git operation failed (exit {result.returncode}): {detail}")
+    return result.stdout.strip()
+
+
+def merge_local(directory: Path, base_sha: str, upstream_sha: str,
+                env: Mapping[str, str] | None = None) -> str:
+    """Make an ordinary merge; leave all conflicts and workflow edits for review."""
+    require_sha(base_sha, "merge base")
+    require_sha(upstream_sha, "upstream")
+    env = public_git_env(os.environ) if env is None else env
+    prefix = ["-C", str(directory)]
+    git_command([*prefix, "checkout", "--detach", base_sha], env=env)
+    git_command([*prefix, "config", "user.name", "github-actions[bot]"], env=env)
+    git_command([*prefix, "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], env=env)
+    try:
+        git_command([
+            *prefix, "-c", "commit.gpgsign=false", "merge", "--no-ff", "--no-edit", upstream_sha,
+            "-m", f"Merge {UPSTREAM} main ({upstream_sha[:12]}) into Mika Dev",
+        ], env=env)
+    except ReleaseError as exc:
+        conflicts = git_command([*prefix, "diff", "--name-only", "--diff-filter=U"], env=env)
+        if conflicts:
+            raise ReleaseError(
+                "Upstream merge conflicts require review; main and published APKs were not changed. "
+                + redact(redact(conflicts, env))[:2000]
+            ) from exc
+        raise
+    changed_workflows = git_command(
+        [*prefix, "diff", "--name-only", base_sha, "HEAD", "--", ".github/workflows"], env=env,
+    )
+    if changed_workflows:
+        raise ReleaseError(
+            "Upstream changes .github/workflows, which this automation's token cannot write. "
+            "Review and merge those workflow changes explicitly before retrying. " + changed_workflows[:2000]
+        )
+    return require_sha(git_command([*prefix, "rev-parse", "HEAD"], env=env), "merged source")
+
+
 class GitHub:
     def api(self, path: str, *, method: str = "GET", payload: Any = None,
             paginate: bool = False) -> Any:
@@ -118,6 +174,48 @@ class GitHub:
             if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_RELEASE_INFO_BYTES:
                 raise ReleaseError("Invalid downloaded release build information.")
             return path.read_bytes()
+
+    def merge_candidate(self, branch: str, base_sha: str, upstream_sha: str) -> str:
+        if branch != candidate_name(os.environ):
+            raise ReleaseError("Refusing to push a candidate branch belonging to a different run.")
+        require_sha(base_sha, "candidate base")
+        require_sha(upstream_sha, "upstream")
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if not token:
+            raise ReleaseError("The repository token is missing for candidate publication.")
+        clean_env = public_git_env(os.environ)
+        with tempfile.TemporaryDirectory(prefix="mika-merge-") as temporary:
+            directory = Path(temporary) / "source"
+            git_command([
+                "clone", "--filter=blob:none", "--no-checkout", "--no-tags",
+                f"https://github.com/{REPOSITORY}.git", str(directory),
+            ], env=clean_env)
+            git_command(["-C", str(directory), "fetch", "--no-tags", "--filter=blob:none", "origin", base_sha], env=clean_env)
+            git_command([
+                "-C", str(directory), "fetch", "--no-tags", "--filter=blob:none",
+                f"https://github.com/{UPSTREAM}.git", upstream_sha,
+            ], env=clean_env)
+            source_sha = merge_local(directory, base_sha, upstream_sha, clean_env)
+            # A push may reach GitHub before its response is lost. Cleanup must
+            # already know this expected SHA as well as the original base.
+            emit_outputs({"source_sha": source_sha}, os.environ)
+            askpass = Path(temporary) / "askpass.sh"
+            askpass.write_text(
+                '#!/bin/sh\ncase "$1" in\n'
+                '  *Username*|*username*) printf "%s\\n" "x-access-token" ;;\n'
+                '  *Password*|*password*) printf "%s\\n" "$GITHUB_TOKEN" ;;\n'
+                '  *) exit 1 ;;\nesac\n', encoding="utf-8",
+            )
+            askpass.chmod(0o700)
+            push_env = {**clean_env, "GIT_ASKPASS": str(askpass), "GITHUB_TOKEN": token}
+            try:
+                git_command([
+                    "-C", str(directory), "-c", "credential.helper=", "push", "origin",
+                    f"HEAD:refs/heads/{branch}",
+                ], env=push_env)
+            finally:
+                askpass.unlink(missing_ok=True)
+            return source_sha
 
 
 def require_sha(value: Any, label: str) -> str:
@@ -308,16 +406,10 @@ def prepare(client: GitHub, env: Mapping[str, str], path: Path = Path("plan.json
         client.api(f"repos/{REPOSITORY}/git/refs", method="POST", payload={
             "ref": f"refs/heads/{branch}", "sha": base_sha,
         })
-        try:
-            client.api(f"repos/{REPOSITORY}/merges", method="POST", payload={
-                "base": branch, "head": upstream_sha,
-                "commit_message": f"Merge {UPSTREAM} main ({upstream_sha[:12]}) into Mika Dev",
-            })
-        except GitHubError as exc:
-            if exc.status == 409:
-                raise ReleaseError("Upstream merge conflicts require review; main and published APKs were not changed.") from exc
-            raise
-        source_sha = get_ref(client, f"heads/{branch}")
+        source_sha = require_sha(client.merge_candidate(branch, base_sha, upstream_sha), "merged candidate")
+        emit_outputs({"source_sha": source_sha}, env)
+        if get_ref(client, f"heads/{branch}") != source_sha:
+            raise ReleaseError("Remote candidate does not match the local merge; it will not be built or published.")
     emit_outputs({"source_sha": source_sha}, env)
     releases = client.api(f"repos/{REPOSITORY}/releases?per_page=100", paginate=True)
     if not isinstance(releases, list):
