@@ -235,9 +235,23 @@ def optional_release(client: GitHub, tag: str) -> dict[str, Any] | None:
     try:
         return client.api(f"repos/{REPOSITORY}/releases/tags/{quote(tag, safe='')}")
     except GitHubError as exc:
-        if exc.status == 404:
-            return None
-        raise
+        if exc.status != 404:
+            raise
+    # GitHub's tag endpoint only finds published releases. An authenticated
+    # release list includes drafts; locate the exact tag and read its stable ID.
+    items = client.api(f"repos/{REPOSITORY}/releases?per_page=100", paginate=True)
+    matches = [item for item in items if item.get("tag_name") == tag]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ReleaseError("Multiple releases share this tag; refusing an ambiguous draft lookup.")
+    release_id = matches[0].get("id")
+    if type(release_id) is not int or release_id <= 0:
+        raise ReleaseError("Invalid release ID in the authenticated release list.")
+    item = client.api(f"repos/{REPOSITORY}/releases/{release_id}")
+    if item.get("tag_name") != tag:
+        raise ReleaseError("The release tag changed during draft lookup.")
+    return item
 
 
 def emit_outputs(values: Mapping[str, Any], env: Mapping[str, str]) -> None:

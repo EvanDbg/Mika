@@ -75,6 +75,8 @@ class FakeGitHub:
         }
         self.status = status
         self.releases = deepcopy(list(releases))
+        for index, item in enumerate(self.releases, start=100):
+            item.setdefault("id", index)
         self.info_files = {item["tag_name"]: item.pop("_info_bytes")
                            for item in self.releases if "_info_bytes" in item}
         self.info_reads = []
@@ -122,7 +124,14 @@ class FakeGitHub:
         if path.startswith(root + "/releases/tags/"):
             tag = path[len(root + "/releases/tags/"):]
             for item in self.releases:
-                if item["tag_name"] == tag:
+                # The real tag endpoint returns published releases only.
+                if item["tag_name"] == tag and not item["draft"]:
+                    return deepcopy(item)
+            raise release.GitHubError("Not Found (HTTP 404)", 404)
+        if path.startswith(root + "/releases/"):
+            release_id = path[len(root + "/releases/"):]
+            for item in self.releases:
+                if str(item["id"]) == release_id:
                     return deepcopy(item)
             raise release.GitHubError("Not Found (HTTP 404)", 404)
         raise AssertionError(f"Unexpected API operation: {method} {path}")
@@ -143,9 +152,11 @@ class FakeGitHub:
         operation, tag = args[:2]
         if operation == "create":
             body = Path(args[args.index("--notes-file") + 1]).read_text()
+            release_id = max((item["id"] for item in self.releases), default=99) + 1
             self.releases.append({
+                "id": release_id,
                 "tag_name": tag, "body": body, "draft": True, "prerelease": True, "assets": [],
-                "html_url": f"https://github.com/{release.REPOSITORY}/releases/tag/{tag}",
+                "html_url": f"https://github.com/{release.REPOSITORY}/releases/tag/untagged-test-{release_id}",
             })
             return ""
         item = next(item for item in self.releases if item["tag_name"] == tag)
@@ -164,6 +175,7 @@ class FakeGitHub:
         elif operation == "edit":
             self.assert_complete_before_publish(item)
             item["draft"] = False
+            item["html_url"] = f"https://github.com/{release.REPOSITORY}/releases/tag/{tag}"
         else:
             raise AssertionError(f"Unexpected release operation {operation}")
         return ""
@@ -175,6 +187,33 @@ class FakeGitHub:
 
 
 class ReleaseMetadataTest(unittest.TestCase):
+    def test_draft_lookup_falls_back_to_authenticated_list_and_id(self):
+        item = published(plan())
+        item["draft"] = True
+        client = FakeGitHub(releases=[item])
+        found = release.optional_release(client, item["tag_name"])
+        self.assertTrue(found["draft"])
+        self.assertEqual(found["tag_name"], item["tag_name"])
+        self.assertTrue(any(path.endswith("/releases?per_page=100") for _, path, _ in client.calls))
+        self.assertTrue(any(path.endswith("/releases/100") for _, path, _ in client.calls))
+
+    def test_draft_lookup_matches_exact_tag_and_rejects_duplicates(self):
+        item = published(plan(code=1_000_010))
+        item["draft"] = True
+        client = FakeGitHub(releases=[item])
+        self.assertIsNone(release.optional_release(client, plan()["tag"]))
+        client = FakeGitHub(releases=[item, item])
+        with self.assertRaisesRegex(release.ReleaseError, "ambiguous draft lookup"):
+            release.optional_release(client, item["tag_name"])
+
+    def test_draft_lookup_does_not_hide_authorization_errors(self):
+        client = FakeGitHub()
+        with patch.object(client, "api", side_effect=release.GitHubError("Forbidden", 403)) as api:
+            with self.assertRaises(release.GitHubError) as caught:
+                release.optional_release(client, plan()["tag"])
+        self.assertEqual(caught.exception.status, 403)
+        self.assertEqual(api.call_count, 1)
+
     def test_version_code_advances_past_drafts_and_ignores_other_channels(self):
         values = [
             {"tag_name": "wechat-unlock-dev-3e24ca5"},
@@ -512,10 +551,23 @@ class SigningAndPublishingTest(unittest.TestCase):
         self.assertIn("--draft=false", client.commands[-1])
         self.assertIn("--latest=false", client.commands[-1])
         self.assertTrue(release.complete_release(client.releases[0], SOURCE))
+        self.assertTrue(any(path.endswith("/releases/100") for _, path, _ in client.calls))
         self.assertTrue(url.endswith(self.value["tag"]))
         previous_commands = list(client.commands)
         self.assertEqual(release.publish(client, self.value, self.output, self.env), url)
         self.assertEqual(client.commands, previous_commands, "Published assets must not be overwritten on rerun")
+
+    def test_existing_matching_draft_can_finish_without_creating_a_second_release(self):
+        self.make_distribution()
+        item = published(self.value)
+        item.update(draft=True, assets=[])
+        client = FakeGitHub(releases=[item])
+        client.refs[(release.REPOSITORY, "tags/" + self.value["tag"])] = SOURCE
+        with patch("sys.stdout", new_callable=io.StringIO):
+            release.publish(client, self.value, self.output, self.env)
+        self.assertEqual([args[0] for args in client.commands], ["upload", "edit"])
+        self.assertEqual(len(client.releases), 1)
+        self.assertTrue(release.complete_release(client.releases[0], SOURCE))
 
     def test_existing_published_release_does_not_ignore_changed_remote_digest(self):
         self.make_distribution()
