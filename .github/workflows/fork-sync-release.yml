@@ -191,17 +191,31 @@ jobs:
           cache-provider: basic
       # APK 使用独立包名和递增版本；设备测试只编译，未连接真机。
       # 本任务不接触签名私钥，产物留到独立任务签名。
-      - name: Unit tests, device test compilation, and unsigned release build
+      # 两个变体顺序构建，并限制 worker，避免 Kotlin 编译同时耗尽堆内存。
+      - name: Unit tests and device test compilation
         env:
           FORK_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
           FORK_VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
         run: >-
-          ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleRelease
+          ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin
           -I control/tools/fork/fork-build.gradle
           -PforkRepository=EvanDbg/Mika
           "-PforkVersionCode=$FORK_VERSION_CODE"
           "-PforkVersionName=$FORK_VERSION_NAME"
-          --stacktrace
+          -Pkotlin.daemon.jvmargs=-Xmx4g
+          --max-workers=1 --stacktrace
+      - name: Build unsigned release APKs
+        env:
+          FORK_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          FORK_VERSION_NAME: ${{ needs.prepare.outputs.version_name }}
+        run: >-
+          ./gradlew :app:assembleRelease
+          -I control/tools/fork/fork-build.gradle
+          -PforkRepository=EvanDbg/Mika
+          "-PforkVersionCode=$FORK_VERSION_CODE"
+          "-PforkVersionName=$FORK_VERSION_NAME"
+          -Pkotlin.daemon.jvmargs=-Xmx4g
+          --max-workers=1 --stacktrace
       - name: Upload unsigned universal and arm64 APKs
         uses: actions/upload-artifact@v7
         with:
