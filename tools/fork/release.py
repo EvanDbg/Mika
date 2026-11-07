@@ -128,7 +128,9 @@ def merge_local(directory: Path, base_sha: str, upstream_sha: str,
 
 class GitHub:
     def api(self, path: str, *, method: str = "GET", payload: Any = None,
-            paginate: bool = False) -> Any:
+            paginate: bool = False, input_file: Path | None = None) -> Any:
+        if input_file is not None and (payload is not None or paginate):
+            raise ReleaseError("A binary upload cannot also contain JSON or pagination parameters.")
         args = [
             "gh", "api", "--hostname", "github.com", "--method", method,
             "-H", "Accept: application/vnd.github+json",
@@ -137,11 +139,18 @@ class GitHub:
         if paginate:
             args += ["--paginate", "--slurp"]
         if payload is not None:
-            args += ["--input", "-"]
-        result = subprocess.run(
-            args, input=None if payload is None else json.dumps(payload),
-            text=True, capture_output=True,
-        )
+            args += ["-H", "Content-Type: application/json", "--input", "-"]
+        if input_file is not None:
+            # gh reads the raw file and sets its Content-Length; the APK never
+            # passes through JSON, text decoding, or a shell command string.
+            args += ["-H", "Content-Type: application/octet-stream", "--input", str(input_file)]
+        try:
+            result = subprocess.run(
+                args, input=None if payload is None else json.dumps(payload),
+                text=True, capture_output=True, timeout=600 if input_file is not None else 120,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitHubError(f"GitHub {method} {path} timed out; publication was not confirmed.") from exc
         if result.returncode:
             status = re.search(r"\bHTTP ([0-9]{3})\b", result.stderr)
             # API requests contain no secrets in their URL or body. Authentication
@@ -152,7 +161,7 @@ class GitHub:
                 int(status.group(1)) if status else None,
             )
         if not result.stdout.strip():
-            return None  # Successful merges may return HTTP 204.
+            return None  # Successful deletes may return HTTP 204.
         try:
             data = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
@@ -165,6 +174,17 @@ class GitHub:
 
     def release_command(self, *args: str) -> str:
         return command(["gh", "release", *args, "--repo", REPOSITORY], label="GitHub release operation")
+
+    def upload_asset(self, item: Mapping[str, Any], path: Path) -> dict[str, Any]:
+        release_id = require_release_id(item)
+        base = f"https://uploads.github.com/repos/{REPOSITORY}/releases/{release_id}/assets"
+        # Never send the repository token to a host or repository taken blindly
+        # from a server response. Only this release's documented URL is allowed.
+        if item.get("upload_url") not in {base, base + "{?name,label}"}:
+            raise ReleaseError("Unexpected GitHub release upload URL.")
+        if path.is_symlink() or not path.is_file():
+            raise ReleaseError("Release uploads require regular files.")
+        return self.api(f"{base}?name={quote(path.name, safe='')}", method="POST", input_file=path)
 
     def read_release_info(self, tag: str) -> bytes:
         # Download one small provenance file, never APKs, when deciding to skip.
@@ -252,6 +272,13 @@ def optional_release(client: GitHub, tag: str) -> dict[str, Any] | None:
     if item.get("tag_name") != tag:
         raise ReleaseError("The release tag changed during draft lookup.")
     return item
+
+
+def require_release_id(item: Mapping[str, Any]) -> int:
+    value = item.get("id") if isinstance(item, Mapping) else None
+    if type(value) is not int or value <= 0:
+        raise ReleaseError("GitHub did not return a valid release ID.")
+    return value
 
 
 def emit_outputs(values: Mapping[str, Any], env: Mapping[str, str]) -> None:
@@ -734,32 +761,33 @@ def publish(client: GitHub, plan: Mapping[str, Any], directory: Path, env: Mappi
     ensure_tag(client, plan)
     if release is None:
         # Creating a draft first keeps partially uploaded versions out of the app
-        # updater and the public release feed. Never use --clobber.
-        with tempfile.TemporaryDirectory(prefix="mika-release-notes-", dir=env["RUNNER_TEMP"]) as temp:
-            note_path = Path(temp) / "notes.md"
-            note_path.write_text(notes(plan), encoding="utf-8")
-            client.release_command(
-                "create", plan["tag"], "--target", plan["source_sha"], "--verify-tag",
-                "--title", f"Mika Dev {plan['version_name']}", "--notes-file", str(note_path),
-                "--draft", "--prerelease",
-            )
-        release = optional_release(client, plan["tag"])
-        if release is None:
-            raise ReleaseError("The draft release was not created.")
+        # updater and the public release feed. Retain the POST response's ID:
+        # discovery by tag/list can lag or omit a draft just created by Actions.
+        release = client.api(f"repos/{REPOSITORY}/releases", method="POST", payload={
+            "tag_name": plan["tag"], "target_commitish": plan["source_sha"],
+            "name": f"Mika Dev {plan['version_name']}", "body": notes(plan),
+            "draft": True, "prerelease": True, "make_latest": "false",
+        })
+    release_id = require_release_id(release)
+    endpoint = f"repos/{REPOSITORY}/releases/{release_id}"
+    if (release.get("draft") is not True or release.get("prerelease") is not True
+            or release.get("tag_name") != plan["tag"]
+            or release_marker(release) != (plan["source_sha"], plan["upstream_sha"], plan["version_code"])):
+        raise ReleaseError("GitHub's draft release does not match the publication plan.")
     missing = verify_remote_assets(release, records, complete=False)
-    if missing:
-        client.release_command("upload", plan["tag"], *(str(directory / name) for name in missing))
-    release = optional_release(client, plan["tag"])
-    if release is None:
-        raise ReleaseError("The draft release disappeared during upload.")
-    if release_marker(release) != (plan["source_sha"], plan["upstream_sha"], plan["version_code"]):
+    for name in missing:
+        client.upload_asset(release, directory / name)
+    release = client.api(endpoint)
+    if (require_release_id(release) != release_id or release.get("tag_name") != plan["tag"]
+            or release.get("draft") is not True or release.get("prerelease") is not True
+            or release_marker(release) != (plan["source_sha"], plan["upstream_sha"], plan["version_code"])):
         raise ReleaseError("The draft release provenance changed during upload.")
     verify_remote_assets(release, records, complete=True)
     if get_ref(client, "heads/main") != plan["source_sha"]:
         raise ReleaseError("main changed during upload; the incomplete publication remains a draft.")
-    client.release_command("edit", plan["tag"], "--draft=false", "--prerelease", "--latest=false")
-    release = optional_release(client, plan["tag"])
-    if (release is None or not complete_release(release, plan["source_sha"])
+    client.api(endpoint, method="PATCH", payload={"draft": False, "prerelease": True, "make_latest": "false"})
+    release = client.api(endpoint)
+    if (require_release_id(release) != release_id or not complete_release(release, plan["source_sha"])
             or release_marker(release) != (plan["source_sha"], plan["upstream_sha"], plan["version_code"])):
         raise ReleaseError("Unable to verify the completed publication.")
     verify_remote_assets(release, records, complete=True)

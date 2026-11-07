@@ -77,6 +77,7 @@ class FakeGitHub:
         self.releases = deepcopy(list(releases))
         for index, item in enumerate(self.releases, start=100):
             item.setdefault("id", index)
+            item.setdefault("upload_url", f"https://uploads.github.com/repos/{release.REPOSITORY}/releases/{item['id']}/assets{{?name,label}}")
         self.info_files = {item["tag_name"]: item.pop("_info_bytes")
                            for item in self.releases if "_info_bytes" in item}
         self.info_reads = []
@@ -106,6 +107,16 @@ class FakeGitHub:
             return {"object": {"type": "commit", "sha": payload["sha"]}}
         if path == root + "/releases?per_page=100" and paginate:
             return deepcopy(self.releases)
+        if path == root + "/releases" and method == "POST":
+            release_id = max((item["id"] for item in self.releases), default=99) + 1
+            item = {
+                **deepcopy(payload), "id": release_id, "assets": [],
+                "upload_url": f"https://uploads.github.com/repos/{release.REPOSITORY}/releases/{release_id}/assets{{?name,label}}",
+                "html_url": f"https://github.com/{release.REPOSITORY}/releases/tag/untagged-test-{release_id}",
+            }
+            self.commands.append(("create", release_id, deepcopy(payload)))
+            self.releases.append(item)
+            return deepcopy(item)
         if path == root + "/tags?per_page=100" and paginate:
             return [{"name": ref.removeprefix("tags/")} for (repo, ref) in self.refs
                     if repo == release.REPOSITORY and ref.startswith("tags/")]
@@ -132,6 +143,11 @@ class FakeGitHub:
             release_id = path[len(root + "/releases/"):]
             for item in self.releases:
                 if str(item["id"]) == release_id:
+                    if method == "PATCH":
+                        self.assert_complete_before_publish(item)
+                        self.commands.append(("edit", item["id"], deepcopy(payload)))
+                        item.update(payload)
+                        item["html_url"] = f"https://github.com/{release.REPOSITORY}/releases/tag/{item['tag_name']}"
                     return deepcopy(item)
             raise release.GitHubError("Not Found (HTTP 404)", 404)
         raise AssertionError(f"Unexpected API operation: {method} {path}")
@@ -148,37 +164,22 @@ class FakeGitHub:
         return SOURCE
 
     def release_command(self, *args):
-        self.commands.append(args)
-        operation, tag = args[:2]
-        if operation == "create":
-            body = Path(args[args.index("--notes-file") + 1]).read_text()
-            release_id = max((item["id"] for item in self.releases), default=99) + 1
-            self.releases.append({
-                "id": release_id,
-                "tag_name": tag, "body": body, "draft": True, "prerelease": True, "assets": [],
-                "html_url": f"https://github.com/{release.REPOSITORY}/releases/tag/untagged-test-{release_id}",
-            })
-            return ""
-        item = next(item for item in self.releases if item["tag_name"] == tag)
-        if operation == "upload":
-            for name in args[2:]:
-                path = Path(name)
-                record = release.file_record(path)
-                item["assets"].append({
-                    "name": path.name, "state": "uploaded", "size": record["size"],
-                    "digest": "sha256:" + record["sha256"],
-                })
-                if path.name == "build-info.json":
-                    self.info_files[tag] = path.read_bytes()
-            if self.on_upload:
-                self.on_upload(item)
-        elif operation == "edit":
-            self.assert_complete_before_publish(item)
-            item["draft"] = False
-            item["html_url"] = f"https://github.com/{release.REPOSITORY}/releases/tag/{tag}"
-        else:
-            raise AssertionError(f"Unexpected release operation {operation}")
-        return ""
+        raise AssertionError("Publication must use the stable REST release ID, not CLI tag discovery")
+
+    def upload_asset(self, item, path):
+        target = next(value for value in self.releases if value["id"] == item["id"])
+        self.commands.append(("upload", item["id"], path.name))
+        record = release.file_record(path)
+        asset = {
+            "name": path.name, "state": "uploaded", "size": record["size"],
+            "digest": "sha256:" + record["sha256"],
+        }
+        target["assets"].append(asset)
+        if path.name == "build-info.json":
+            self.info_files[target["tag_name"]] = path.read_bytes()
+        if self.on_upload:
+            self.on_upload(target)
+        return deepcopy(asset)
 
     @staticmethod
     def assert_complete_before_publish(item):
@@ -546,10 +547,10 @@ class SigningAndPublishingTest(unittest.TestCase):
             url = release.publish(client, self.value, self.output, self.env)
         self.assertEqual(client.refs[(release.REPOSITORY, "heads/main")], SOURCE)
         self.assertEqual(client.refs[(release.REPOSITORY, "tags/" + self.value["tag"])], SOURCE)
-        self.assertEqual([args[0] for args in client.commands], ["create", "upload", "edit"])
-        self.assertIn("--draft", client.commands[0])
-        self.assertIn("--draft=false", client.commands[-1])
-        self.assertIn("--latest=false", client.commands[-1])
+        self.assertEqual([args[0] for args in client.commands], ["create", *["upload"] * 4, "edit"])
+        self.assertTrue(client.commands[0][2]["draft"])
+        self.assertFalse(client.commands[-1][2]["draft"])
+        self.assertEqual(client.commands[-1][2]["make_latest"], "false")
         self.assertTrue(release.complete_release(client.releases[0], SOURCE))
         self.assertTrue(any(path.endswith("/releases/100") for _, path, _ in client.calls))
         self.assertTrue(url.endswith(self.value["tag"]))
@@ -565,9 +566,31 @@ class SigningAndPublishingTest(unittest.TestCase):
         client.refs[(release.REPOSITORY, "tags/" + self.value["tag"])] = SOURCE
         with patch("sys.stdout", new_callable=io.StringIO):
             release.publish(client, self.value, self.output, self.env)
-        self.assertEqual([args[0] for args in client.commands], ["upload", "edit"])
+        self.assertEqual([args[0] for args in client.commands], [*["upload"] * 4, "edit"])
         self.assertEqual(len(client.releases), 1)
         self.assertTrue(release.complete_release(client.releases[0], SOURCE))
+
+    def test_new_draft_publishes_by_returned_id_even_if_tag_and_list_cannot_see_it(self):
+        self.make_distribution()
+        client = FakeGitHub()
+        original_api = client.api
+
+        def invisible_drafts(path, **kwargs):
+            result = original_api(path, **kwargs)
+            if path.endswith("/releases?per_page=100"):
+                return [item for item in result if not item["draft"]]
+            return result
+
+        client.api = invisible_drafts
+        with patch("sys.stdout", new_callable=io.StringIO):
+            url = release.publish(client, self.value, self.output, self.env)
+        self.assertTrue(release.complete_release(client.releases[0], SOURCE))
+        self.assertTrue(url.endswith(self.value["tag"]))
+        # Discovery happens only once, before creation. All subsequent operations
+        # use the numeric ID supplied by POST /releases, including publication.
+        self.assertEqual(sum("/releases/tags/" in path for _, path, _ in client.calls), 1)
+        self.assertEqual(sum(path.endswith("/releases?per_page=100") for _, path, _ in client.calls), 1)
+        self.assertEqual({operation[1] for operation in client.commands}, {100})
 
     def test_existing_published_release_does_not_ignore_changed_remote_digest(self):
         self.make_distribution()
@@ -618,6 +641,16 @@ class SigningAndPublishingTest(unittest.TestCase):
         self.assertNotIn("edit", [args[0] for args in client.commands])
         self.assertEqual(client.refs[(release.REPOSITORY, "heads/main")], OTHER)
 
+    def test_changed_draft_or_channel_flag_prevents_automatic_publication(self):
+        self.make_distribution()
+        for field in ("draft", "prerelease"):
+            with self.subTest(field=field):
+                client = FakeGitHub()
+                client.on_upload = lambda item: item.update({field: False})
+                with self.assertRaisesRegex(release.ReleaseError, "provenance changed during upload"):
+                    release.publish(client, self.value, self.output, self.env)
+                self.assertNotIn("edit", [args[0] for args in client.commands])
+
     def test_wrong_remote_digest_keeps_release_private(self):
         self.make_distribution()
         client = FakeGitHub()
@@ -636,6 +669,39 @@ class SigningAndPublishingTest(unittest.TestCase):
 
 
 class CleanupAndLoggingTest(unittest.TestCase):
+    def test_upload_sends_raw_file_to_validated_absolute_github_url(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "Mika Dev+.apk"
+            path.write_bytes(b"\x00\xffraw-apk\x80")
+            item = {"id": 123, "upload_url": "https://uploads.github.com/repos/EvanDbg/Mika/releases/123/assets{?name,label}"}
+            response = subprocess.CompletedProcess([], 0, json.dumps({"name": path.name, "state": "uploaded"}), "")
+            with patch("subprocess.run", return_value=response) as run:
+                result = release.GitHub().upload_asset(item, path)
+            args = run.call_args.args[0]
+            self.assertIn("https://uploads.github.com/repos/EvanDbg/Mika/releases/123/assets?name=Mika%20Dev%2B.apk", args)
+            self.assertIn("Content-Type: application/octet-stream", args)
+            self.assertEqual(args[args.index("--input") + 1], str(path))
+            self.assertIsNone(run.call_args.kwargs["input"])
+            self.assertEqual(run.call_args.kwargs["timeout"], 600)
+            self.assertEqual(result["name"], path.name)
+            self.assertEqual(path.read_bytes(), b"\x00\xffraw-apk\x80")
+
+    def test_upload_rejects_other_hosts_repositories_and_release_ids(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "asset.apk"
+            path.write_bytes(b"apk")
+            for url in (
+                "https://uploads.github.com.evil.test/repos/EvanDbg/Mika/releases/123/assets{?name,label}",
+                "http://uploads.github.com/repos/EvanDbg/Mika/releases/123/assets{?name,label}",
+                "https://uploads.github.com/repos/another/repo/releases/123/assets{?name,label}",
+                "https://uploads.github.com/repos/EvanDbg/Mika/releases/999/assets{?name,label}",
+                "https://uploads.github.com/repos/EvanDbg/Mika/releases/123/assets?other=value",
+            ):
+                with self.subTest(url=url), patch("subprocess.run") as run:
+                    with self.assertRaisesRegex(release.ReleaseError, "Unexpected GitHub release upload URL"):
+                        release.GitHub().upload_asset({"id": 123, "upload_url": url}, path)
+                    run.assert_not_called()
+
     def test_cleanup_preserves_foreign_or_changed_branches(self):
         client = FakeGitHub()
         with tempfile.TemporaryDirectory() as temp:
