@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">Encuentra en Amazon tres auriculares inalámbricos bien valorados por menos de 100 USD y compara sus ventajas y desventajas.</string>
     <string name="chat_example_alarms">Pon alarmas mañana por la mañana a las 9:40, 9:50 y 10:00.</string>
     <string name="chat_example_ai_apps">Encuentra las apps de IA instaladas en mi teléfono, pregúntales qué hace mejor cada una y compara sus respuestas.</string>
+    <string name="chat_example_replace_title">¿Reemplazar el borrador actual?</string>
+    <string name="chat_example_replace_body">La tarea recomendada reemplazará lo que ya escribiste.</string>
+    <string name="chat_example_replace_action">Reemplazar borrador</string>
     <string name="chat_working_on">Trabajando en %1$s</string>
     <string name="chat_working">Trabajando</string>
     <string name="share_draft_failed">No se pudo añadir el contenido compartido a una conversación nueva</string>

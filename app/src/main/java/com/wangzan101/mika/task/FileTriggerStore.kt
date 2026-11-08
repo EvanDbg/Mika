@@ -75,6 +75,7 @@ class FileTriggerStore(
     } else TriggerSnapshot(emptyList(), emptyList()))
 
     @Synchronized override fun upsert(trigger: TriggerDefinition) { memory.upsert(trigger); save() }
+    @Synchronized fun edit(trigger: TriggerDefinition): Boolean = memory.edit(trigger).also { if (it) save() }
     @Synchronized override fun remove(id: String) { memory.remove(id); save() }
     @Synchronized override fun get(id: String) = memory.get(id)
     @Synchronized override fun all() = memory.all()

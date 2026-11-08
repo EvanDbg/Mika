@@ -3,8 +3,13 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 按住说话时录音，转成文字。 -->
+    <!-- 按住说话时录音，转成文字；用户浏览器里的网页要麦克风时也用它。 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 用户浏览器里的网页要摄像头（Mika 自己拍照走系统相机，不用这个权限）；网页请求时先弹框问用户。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 用户浏览器里的网页要定位；网页请求时先弹框问用户。 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- 用户在关于页下载新版后，交给系统安装器确认覆盖安装。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 沙箱联网时读当前网络的 DNS 服务器 -->
@@ -43,6 +48,14 @@
     <!-- 语音输入要麦克风,但不是必需:没有麦克风的设备照常安装,只是用不了语音 -->
     <uses-feature
         android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- 网页定位用到位置权限,但不是必需:没有定位硬件的设备照常安装,只是网页拿不到位置 -->
+    <uses-feature
+        android:name="android.hardware.location"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.location.gps"
         android:required="false" />
 
     <!-- list_apps 列出可启动的 App;解析系统权限框所在的包,用于判断「被切走」 -->
@@ -276,6 +289,7 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".task.TriggerAlarmReceiver" android:exported="false" />
+        <receiver android:name=".teach.TeachReceiver" android:exported="false" />
     </application>
 
 </manifest>

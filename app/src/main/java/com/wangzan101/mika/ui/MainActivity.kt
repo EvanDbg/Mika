@@ -74,6 +74,7 @@ import com.wangzan101.mika.ui.theme.systemBarsFor
 class MainActivity : ComponentActivity() {
     private lateinit var monitor: SystemStatusMonitor
     private var requestedConversation by mutableStateOf<String?>(null)
+    private var openTeach by mutableStateOf(false)
     private var requestedSharedDraft by mutableStateOf<SharedDraftRequest?>(null)
     private var shareJob: Job? = null
     private var shareSerial = 0L
@@ -93,6 +94,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
+        takeTeach(intent)
         val pendingShare = (application as MikaApp).sharedDrafts.read()
         val restoringAcceptedShare = savedInstanceState != null && intent.action == Intent.ACTION_SEND && pendingShare != null &&
             (application as MikaApp).conversations.currentChat() == CurrentChat.Open(pendingShare.conversationId)
@@ -109,16 +111,21 @@ class MainActivity : ComponentActivity() {
             MikaTheme(dark = dark, reduceMotion = animationsOff(this)) {
                 // 在输入框外面点一下或拖动就收起键盘,全 App 统一
                 KeyboardDismissArea(Modifier.fillMaxSize()) {
-                    MikaRoot(store, monitor, ::perform, requestedConversation, { requestedConversation = null }, requestedSharedDraft) { accepted, draft ->
-                        requestedSharedDraft = null
-                        if (accepted) {
-                            // 接受后重建不再把最初的分享当成一次新分享。
-                            setIntent(Intent(this@MainActivity, MainActivity::class.java))
-                        } else {
-                            (application as MikaApp).sharedDrafts.discard(draft.image)
-                            Toast.makeText(this@MainActivity, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    MikaRoot(
+                        store, monitor, ::perform, requestedConversation, { requestedConversation = null }, requestedSharedDraft,
+                        onSharedDraftOpened = { accepted, draft ->
+                            requestedSharedDraft = null
+                            if (accepted) {
+                                // 接受后重建不再把最初的分享当成一次新分享。
+                                setIntent(Intent(this@MainActivity, MainActivity::class.java))
+                            } else {
+                                (application as MikaApp).sharedDrafts.discard(draft.image)
+                                Toast.makeText(this@MainActivity, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        openTeach = openTeach,
+                        onTeachOpened = { openTeach = false },
+                    )
                 }
             }
         }
@@ -128,6 +135,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
+        takeTeach(intent)
         requestedSharedDraft?.let { (application as MikaApp).sharedDrafts.discard(it.draft.image) }
         requestedSharedDraft = null
         receiveShare(intent)
@@ -262,8 +270,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun takeTeach(intent: Intent) {
+        if (!intent.getBooleanExtra(EXTRA_OPEN_TEACH, false)) return
+        openTeach = true
+        (application as MikaApp).teach.prefill(intent.getStringExtra(EXTRA_TEACH_GOAL))
+        intent.removeExtra(EXTRA_OPEN_TEACH)
+    }
+
     companion object {
         const val EXTRA_OPEN_CONVERSATION = "open_conversation"
+        const val EXTRA_OPEN_TEACH = "open_teach"
+        const val EXTRA_TEACH_GOAL = "teach_goal"
         private const val TAG = "MikaMain"
     }
 }
@@ -295,6 +312,8 @@ private fun MikaRoot(
     onConversationOpened: () -> Unit,
     sharedDraft: SharedDraftRequest?,
     onSharedDraftOpened: (Boolean, SharedDraft) -> Unit,
+    openTeach: Boolean,
+    onTeachOpened: () -> Unit,
 ) {
     val nav = rememberNavStack()
     // 从设置页「重新配对」进来时先回到配对一步
@@ -343,6 +362,12 @@ private fun MikaRoot(
     val phoneSetup = remember { PhoneServices.of(context).setupPrompt }
     val openMemory by memoryRuntime.openRequest.collectAsState()
     LaunchedEffect(openMemory) { if (openMemory != null) nav.push(Route.Memory) }
+    LaunchedEffect(openTeach) {
+        if (openTeach) {
+            nav.push(Route.Teach)
+            onTeachOpened()
+        }
+    }
     // 第一次打开:欢迎 → 配置模型 → 手机操作;配过模型的跳过前两步,手机操作已就绪或看过引导的跳过最后一步
     val onboardingState = remember { OnboardingState(context) }
     fun onboardingInputs() = Onboarding.Inputs(
@@ -433,6 +458,10 @@ private fun MikaRoot(
                     },
                     voice = app.voice,
                     openSpeechModel = { nav.push(Route.SpeechModel) },
+                    onOpenTeach = { hint ->
+                        app.teach.prefill(hint)
+                        nav.push(Route.Teach)
+                    },
                 )
             }
         }
@@ -493,12 +522,16 @@ private fun MikaRoot(
                         runnableScripts = bundled.runnableScripts(),
                         appDrafts = memoryRuntime.appKnowledge(),
                         builtinSkillNames = bundled.items.map { it.name }.toSet(),
+                        onSkillRetired = { app.teach.forget(it) },
                     )
                 }
             }
             vm?.let { m ->
                 // 从结果卡片的「看看」进来:直接看技能分段
-                LaunchedEffect(m) { if (memoryRuntime.openRequest.value != null) m.select(Segment.Skills) }
+                LaunchedEffect(m) {
+                    val open = memoryRuntime.openRequest.value
+                    if (open != null) m.select(if (open.draftId != null) Segment.Pending else Segment.Skills)
+                }
                 MemoryDataScreen(
                     m, webSites, routeCount,
                     onClearRoutes = {
@@ -526,6 +559,14 @@ private fun MikaRoot(
             app.chat.openConversation(it)
             nav.reset()
         })
+        Route.Teach -> TeachScreen(
+            app.teach,
+            onBack = { nav.back() },
+            onOpenDrafts = {
+                memoryRuntime.requestOpen(com.wangzan101.mika.memory.MemoryOpen(app.teach.ui.value.session?.draftId))
+                nav.push(Route.Memory)
+            },
+        )
         Route.Screens -> ScreensScreen(app.taskState, onBack = back, onOpenConversation = {
             app.chat.openConversation(it)
             nav.reset()

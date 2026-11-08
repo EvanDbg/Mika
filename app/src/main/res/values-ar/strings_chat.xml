@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">اعثر على Amazon على ثلاث سماعات أذن لاسلكية عالية التقييم بسعر أقل من 100 دولار، وقارن مزاياها وعيوبها.</string>
     <string name="chat_example_alarms">اضبط المنبهات للساعة 9:40 و9:50 و10:00 صباح الغد.</string>
     <string name="chat_example_ai_apps">اعثر على تطبيقات الذكاء الاصطناعي المثبتة على هاتفي، واسأل كلًّا منها عمّا يتقنه، ثم قارن إجاباتها.</string>
+    <string name="chat_example_replace_title">استبدال المسودة الحالية؟</string>
+    <string name="chat_example_replace_body">ستستبدل المهمة المقترحة ما كتبته بالفعل.</string>
+    <string name="chat_example_replace_action">استبدال المسودة</string>
     <string name="chat_working_on">جارٍ العمل على %1$s</string>
     <string name="chat_working">جارٍ العمل</string>
     <string name="share_draft_failed">تعذّرت إضافة المحتوى المشارَك إلى محادثة جديدة</string>

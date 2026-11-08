@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">幫我開啟汽水音樂，看廣告領取24小時聽歌VIP會員</string>
     <string name="chat_example_alarms">幫我訂明天早上9:40、9:50、10:00 的鬧鐘</string>
     <string name="chat_example_ai_apps">看看我手機裡有哪些 AI App，分別問問它們各自有什麼優勢，最後做個對比</string>
+    <string name="chat_example_replace_title">取代目前草稿？</string>
+    <string name="chat_example_replace_body">推薦任務會取代你已輸入的內容。</string>
+    <string name="chat_example_replace_action">取代草稿</string>
     <string name="chat_working_on">正在操作%1$s</string>
     <string name="chat_working">正在處理</string>
     <string name="share_draft_failed">沒能把分享內容放進新對話</string>

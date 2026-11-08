@@ -157,6 +157,7 @@ class TaskService : Service() {
 
     /** 取这个对话的下一件;只取一件,由 startNew 登记或放回。 */
     private fun drainReady(conversationId: String?) {
+        if (teachingBlocks()) return
         center.takeReady(conversationId).forEach(::startFollowUp)
     }
 
@@ -299,10 +300,22 @@ class TaskService : Service() {
         return START_NOT_STICKY
     }
 
+    /** 正在采集或暂停的示范里不开始任务，也不把排队项取走。 */
+    private fun teachingBlocks(): Boolean {
+        val app = application as? com.wangzan101.mika.MikaApp ?: return false
+        return app.teachReady && app.teach.blocksTasks()
+    }
+
     private fun begin(newGoal: String, requestedConversation: String?,
         provenance: RunProvenance = RunProvenance(), triggerKey: String? = null,
         triggerActionGoal: String? = null, triggerThreadId: String? = null, mcpExternalId: String? = null, messageId: String? = null,
         channelPeer: ChannelPeer? = null, channelMessageId: String? = null, triggerCondition: String? = null) {
+        if (teachingBlocks()) {
+            if (provenance.origin == RunOrigin.Ui) {
+                android.widget.Toast.makeText(this, tr(R.string.teach_blocked_task), android.widget.Toast.LENGTH_LONG).show()
+            }
+            return
+        }
         parallel = FeatureFlags.get(this).speedFlags().parallelTasks
         // 同一对话里正在执行或排队的任务收到新原话时，交给它的 Inbox。
         requestedConversation?.let(center::byConversation)?.let { existing ->
@@ -338,6 +351,13 @@ class TaskService : Service() {
         triggerActionGoal: String? = null, triggerThreadId: String? = null, mcpExternalId: String? = null,
         followUp: QueuedFollowUp? = null, triggerCondition: String? = null,
         channelPeer: ChannelPeer? = null, channelMessageId: String? = null) {
+        if (teachingBlocks()) {
+            if (followUp != null) center.followUps.add(followUp)
+            else if (provenance.origin == RunOrigin.Ui) {
+                android.widget.Toast.makeText(this, tr(R.string.teach_blocked_task), android.widget.Toast.LENGTH_LONG).show()
+            }
+            return
+        }
         parallel = FeatureFlags.get(this).speedFlags().parallelTasks
         // 别的对话的任务正在跑、并行关着(或已到上限)时不丢:登记处让它排在后面,那个任务收尾时放出来。
         // 对话页先等服务空下来再交过来,但查完到交到之间别处(定时、电脑)可能先开始了一个,这里同样排上

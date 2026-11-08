@@ -736,7 +736,15 @@ def main(argv=None):
             text = text.replace(secret, "[redacted]")
         print(text, end="" if text.endswith("\n") else "\n")
         return code
-    output = json.dumps(redact(result, secrets), ensure_ascii=False, separators=(",", ":") if compact else None, indent=None if compact else 2)
+    redacted = redact(result, secrets)
+    style = {"separators": (",", ":") if compact else None, "indent": None if compact else 2}
+    try:
+        output = json.dumps(redacted, ensure_ascii=False, **style)
+        output.encode("utf-8")
+    except UnicodeEncodeError:
+        # A phone string cut through a surrogate pair has no UTF-8 form. It is still JSON, so escape
+        # it instead of dying on an empty stdout: the caller always gets one document.
+        output = json.dumps(redacted, **style)
     print(output, file=sys.stdout if compact or code == 0 else sys.stderr)
     return code
 

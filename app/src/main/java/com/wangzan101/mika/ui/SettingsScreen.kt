@@ -425,7 +425,7 @@ fun AdvancedSettingsContent(
                 }
                 webSearch?.let { config ->
                     ListRow(MikaIcons.Globe, stringResource(R.string.web_search_title), stringResource(R.string.web_search_row_sub), first = take(), onClick = onOpenWebSearch) {
-                        RowValue(stringResource(if (config.enabled) R.string.state_on else R.string.state_off)); RowChevron()
+                        RowValue(WebSearchCopy.value(config)); RowChevron()
                     }
                 }
                 if (sandboxRow != null) {

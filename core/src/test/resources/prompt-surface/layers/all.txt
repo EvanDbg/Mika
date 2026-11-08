@@ -642,6 +642,8 @@ Read text across successive screens in the current Android app, scrolling locall
 
 ## phone_wait
 Wait for text to appear or disappear, an activity class to open, or the phone screen to become stable. The Android port wakes on accessibility events. Use this after an action that starts loading instead of repeatedly observing at a fixed interval.
+
+Prefer appear/disappear/activity conditions for the result you actually need. A stability timeout does not prove the screen is unusable: animation, video and timers may never stop. After a bounded wait, observe and continue if the intended target is identifiable; do not loop on stable waits for decorative motion.
 {"type":"object","properties":{"condition":{"type":"string","description":"appear, disappear, activity, or stable.","enum":["appear","disappear","activity","stable"]},"value":{"type":"string","description":"Text for appear/disappear; activity class name for activity."},"timeoutMs":{"type":"integer","description":"Maximum wait in milliseconds, 0-30000 (default 10000).","minimum":0,"maximum":30000},"reason":{"type":"string","description":"Optional short note on why you are calling this, in the user's language; shown to the user as the step label."}},"required":["condition"],"additionalProperties":false}
 
 ## phone_event

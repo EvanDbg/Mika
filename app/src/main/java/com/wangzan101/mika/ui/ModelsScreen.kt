@@ -812,7 +812,7 @@ object ModelsCopy {
     fun speechLine(ui: ModelSetupUi): RoleLine {
         val s = SpeechOptions.summary(ui.speech, ui.systemSpeech, ui.providers)
         val unset = s.title == UNSET
-        return RoleLine(s.title, s.sub.orEmpty(), isModel = !unset && (ui.speech is SpeechChoice.Provider || ui.speech is SpeechChoice.Doubao), unset = unset, subtitleOk = s.subOk)
+        return RoleLine(s.title, s.sub.orEmpty(), isModel = !unset && (ui.speech is SpeechChoice.Provider || ui.speech is SpeechChoice.Doubao || ui.speech is SpeechChoice.FunAsr || ui.speech is SpeechChoice.Bailian), unset = unset, subtitleOk = s.subOk)
     }
 
     fun roleIcon(role: ModelRole): ImageVector = when (role) {

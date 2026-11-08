@@ -430,7 +430,7 @@ phone_query #ff9a9efbfa89
 phone_find #157c6f044504
 phone_extract #b759ab1ab1ab
 phone_collect #ade791ee3751
-phone_wait #b5b318409c0a
+phone_wait #c5c73f60f068
 phone_event #45093cbd4ca1
 phone_dialog #ffdf9f3048b0
 phone_gesture #b4c09a3789c3

@@ -92,6 +92,19 @@ class MemoryTriggerStore(initial: TriggerSnapshot = TriggerSnapshot(emptyList(),
     @Synchronized fun snapshot() = TriggerSnapshot(triggers.values.toList(), ledger.values.toList())
 
     @Synchronized override fun upsert(trigger: TriggerDefinition) { triggers[trigger.id] = trigger }
+
+    /** 保存编辑并终止旧条件检查的派发资格；已经开始的动作继续收尾。 */
+    @Synchronized fun edit(trigger: TriggerDefinition): Boolean {
+        val previous = triggers[trigger.id] ?: return false
+        if (previous.conditionGoal != null) {
+            ledger.values.filter { it.triggerId == trigger.id &&
+                (it.state == TriggerWindowState.Claimed || it.state == TriggerWindowState.Dispatched) }
+                .forEach { mark(it.key, TriggerWindowState.Skipped, CONDITION_PLAN_EDITED) }
+        }
+        triggers[trigger.id] = trigger.withConditionHistoryFrom(previous)
+        return true
+    }
+
     @Synchronized override fun remove(id: String) {
         triggers.remove(id)
         ledger.entries.removeAll { it.value.triggerId == id }

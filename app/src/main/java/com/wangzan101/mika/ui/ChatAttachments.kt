@@ -3,10 +3,13 @@ package com.wangzan101.mika.ui
 import com.wangzan101.mika.R
 import com.wangzan101.mika.i18n.tr
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import android.app.Activity
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
@@ -148,6 +151,25 @@ internal fun AttachPanelHost(
         cameraUri = null
         if (ok) onPicked(listOf(uri)) else AttachFiles.discardCamera(context, Uri.parse(uri))
     }
+    // 声明了 CAMERA 权限后,系统相机要求应用先拿到授权;没授权时 ACTION_IMAGE_CAPTURE 会抛 SecurityException
+    fun startCamera() {
+        val uri = AttachFiles.newCameraUri(context)
+        cameraUri = uri.toString()
+        try {
+            camera.launch(uri)
+        } catch (e: ActivityNotFoundException) {
+            cameraUri = null
+            AttachFiles.discardCamera(context, uri)
+            Toast.makeText(context, AttachCopy.NO_CAMERA, Toast.LENGTH_SHORT).show()
+        } catch (e: SecurityException) {
+            cameraUri = null
+            AttachFiles.discardCamera(context, uri)
+            Toast.makeText(context, AttachCopy.NO_CAMERA, Toast.LENGTH_SHORT).show()
+        }
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startCamera()
+    }
     val album = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(AttachTray.LIMIT)) { uris ->
         onPicked(uris.map { it.toString() })
     }
@@ -160,13 +182,8 @@ internal fun AttachPanelHost(
         recent = recent,
         selected = selected,
         onCamera = {
-            val uri = AttachFiles.newCameraUri(context)
-            cameraUri = uri.toString()
-            try { camera.launch(uri) } catch (e: ActivityNotFoundException) {
-                cameraUri = null
-                AttachFiles.discardCamera(context, uri)
-                Toast.makeText(context, AttachCopy.NO_CAMERA, Toast.LENGTH_SHORT).show()
-            }
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
+            else cameraPermission.launch(Manifest.permission.CAMERA)
         },
         onAlbum = openAlbum,
         onFiles = { files.launch(arrayOf("*/*")) },

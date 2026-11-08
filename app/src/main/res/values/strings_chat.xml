@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">Find three highly rated wireless earbuds under $100 on Amazon and compare their pros and cons.</string>
     <string name="chat_example_alarms">Set alarms for 9:40, 9:50 and 10:00 tomorrow morning.</string>
     <string name="chat_example_ai_apps">Find the AI apps installed on my phone, ask each one what it does best, and compare their answers.</string>
+    <string name="chat_example_replace_title">Replace current draft?</string>
+    <string name="chat_example_replace_body">This recommendation will replace what you’ve already typed.</string>
+    <string name="chat_example_replace_action">Replace draft</string>
     <string name="chat_working_on">Working in %1$s</string>
     <string name="chat_working">Working</string>
     <string name="share_draft_failed">Couldn’t add this share to a new conversation</string>

@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">Temukan tiga earbud nirkabel dengan rating tinggi di bawah US$100 di Amazon dan bandingkan kelebihan serta kekurangannya.</string>
     <string name="chat_example_alarms">Pasang alarm pukul 9.40, 9.50, dan 10.00 besok pagi.</string>
     <string name="chat_example_ai_apps">Temukan aplikasi AI yang terpasang di ponsel saya, tanyakan kepada masing-masing apa keunggulannya, lalu bandingkan jawabannya.</string>
+    <string name="chat_example_replace_title">Ganti draf saat ini?</string>
+    <string name="chat_example_replace_body">Tugas yang direkomendasikan akan mengganti teks yang sudah Anda ketik.</string>
+    <string name="chat_example_replace_action">Ganti draf</string>
     <string name="chat_working_on">Bekerja di %1$s</string>
     <string name="chat_working">Bekerja</string>
     <string name="share_draft_failed">Konten yang dibagikan tidak dapat ditambahkan ke percakapan baru</string>

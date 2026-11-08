@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">Найди на Amazon три модели беспроводных наушников с высоким рейтингом дешевле 100 долларов и сравни их плюсы и минусы.</string>
     <string name="chat_example_alarms">Поставь будильники на завтра на 9:40, 9:50 и 10:00 утра.</string>
     <string name="chat_example_ai_apps">Найди установленные на моём телефоне приложения с ИИ, спроси каждое, что у него получается лучше всего, и сравни ответы.</string>
+    <string name="chat_example_replace_title">Заменить текущий черновик?</string>
+    <string name="chat_example_replace_body">Рекомендуемая задача заменит уже введённый текст.</string>
+    <string name="chat_example_replace_action">Заменить черновик</string>
     <string name="chat_working_on">Работает в приложении «%1$s»</string>
     <string name="chat_working">Работает</string>
     <string name="share_draft_failed">Не удалось добавить материал в новый разговор</string>

@@ -38,9 +38,10 @@ import kotlinx.coroutines.launch
 object TriggerRuntime {
     private var recovered = false
     /** 存下并布置闹钟;系统没准许准时闹钟(到点可能不准时或起不来)时引导用户去开一次,结果里照实说有没有提示到。 */
-    @Synchronized fun schedule(context: Context, definition: TriggerDefinition): Scheduled {
+    @Synchronized fun schedule(context: Context, definition: TriggerDefinition, replaceExisting: Boolean = false): Scheduled {
         val store = store(context)
-        store.upsert(definition)
+        if (replaceExisting) check(store.edit(definition)) { tr(R.string.trigger_deleted) }
+        else store.upsert(definition)
         engine(context, store).rearm(System.currentTimeMillis())
         val granted = canScheduleExactly(context)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -112,7 +113,7 @@ object TriggerRuntime {
 
     @Synchronized fun interrupted(context: Context, key: String, reason: String) {
         val store = store(context)
-        store.mark(key, TriggerWindowState.Unknown, reason)
+        if (!store.mark(key, TriggerWindowState.Unknown, reason)) return
         store.windows().firstOrNull { it.key == key }?.let { window ->
             store.get(window.triggerId)?.let { trigger ->
                 if (!hasSavedResult(context, key)) runCatching { reportUncertain(context, trigger, key) }

@@ -41,6 +41,8 @@ Each connection has its own switch and token, and both can be on at once. The co
 
 ## Task desk (`mika ui`)
 
+The optional [Feishu connector](feishu.en.md) can also create/link a bot and exchange tasks and results in private chats; its computer process must stay online.
+
 If you would rather not type commands, connect the phone and run `mika ui`. Your browser opens a task desk where you can start tasks, follow their steps, answer questions, add instructions and cancel tasks; recent tasks started from other entry points show up too. Reads pause while the tab is hidden and resume when you come back; steps that need you still have to be handled on the phone. The desk follows the browser's language: Simplified Chinese or English.
 
 The sidebar groups the latest 50 remote tasks by conversation. Read each turn in the center and use the composer to continue after a turn ends. Select **View process** to expand the phone’s report and the updates observed in this tab above that turn’s reply. Select **Hide process** to collapse it. The composer keeps your current draft. Select **New chat** to start a separate conversation.

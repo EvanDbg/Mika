@@ -142,12 +142,8 @@ fun editedTrigger(
         minutes * 60_000
     } else null
     val reminderText = content.takeIf { draft.reminder }
-    val conditionChanged = original != null && (
-        original.conditionGoal != condition || original.notifyWhen != draft.notifyWhen ||
-            original.cooldownMs != cooldownMs || original.reminderText != reminderText
-        )
     val base = original ?: TriggerDefinition(newId, newThreadId, content, nextAt)
-    return base.copy(
+    val updated = base.copy(
         goal = content,
         nextAtMs = nextAt,
         intervalMs = intervalMs,
@@ -160,12 +156,8 @@ fun editedTrigger(
         calendarDays = calendarDays,
         notifyWhen = draft.notifyWhen,
         cooldownMs = cooldownMs,
-        lastConditionMet = if (conditionChanged) null else base.lastConditionMet,
-        lastValue = if (conditionChanged) null else base.lastValue,
-        baselineValue = if (conditionChanged) null else base.baselineValue,
-        baselineAtMs = if (conditionChanged) null else base.baselineAtMs,
-        lastFiredAtMs = if (conditionChanged) null else base.lastFiredAtMs,
     )
+    return if (original == null) updated else updated.withConditionHistoryFrom(original)
 }
 
 private fun invalid(reason: PlanValidation): Nothing = throw PlanValidationException(reason)

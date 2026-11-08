@@ -1,4 +1,4 @@
-<!-- translated-from: README.md @ 1a63dcbf5878 -->
+<!-- translated-from: README.md @ 46f11aa3f1a8 -->
 <div align="center">
 
 <img src="../media/logo.png" alt="Mika" width="88" />
@@ -166,8 +166,8 @@
 
 <a href="https://star-history.com/#wangzan101/Mika&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261104-2107" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261104-2107" width="600" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&theme=dark&v=20261107-2304" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=wangzan101/Mika&type=Date&v=20261107-2304" width="600" />
   </picture>
 </a>
 

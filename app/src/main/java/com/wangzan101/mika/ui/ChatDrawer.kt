@@ -151,7 +151,7 @@ fun drawerSections(
     zone: ZoneId = ZoneId.systemDefault(),
 ): DrawerSections {
     val byId = all.associateBy { it.id }
-    fun timeOf(id: String?) = byId[id]?.let { conversationTime(it.updatedAt, now, zone) }.orEmpty()
+    fun timeOf(id: String?) = byId[id]?.takeIf { it.updatedAt != 0L }?.let { conversationTime(it.updatedAt, now, zone) }.orEmpty()
     fun pinned(id: String?) = byId[id]?.pinnedAt != null
     val running = buildList {
         if (current.running) add(DrawerConversation(current.id, current.title.ifBlank { tr(R.string.chat_new) }, current.subtitle, true, true, true, time = timeOf(current.id), pinned = pinned(current.id), site = byId[current.id]?.page?.host, branch = byId[current.id]?.branchOf != null))
@@ -163,7 +163,7 @@ fun drawerSections(
     val runningIds = running.mapNotNull { it.id }.toSet()
     fun entry(s: ConversationSummary): DrawerConversation {
         val isCurrent = s.id == current.id
-        return DrawerConversation(s.id, ChatCopy.plainTitle(s.title), "", false, isCurrent, canSwitch || isCurrent, conversationTime(s.updatedAt, now, zone), pinned = s.pinnedAt != null,
+        return DrawerConversation(s.id, ChatCopy.plainTitle(s.title), "", false, isCurrent, canSwitch || isCurrent, timeOf(s.id), pinned = s.pinnedAt != null,
             site = s.page?.host, branch = s.branchOf != null)
     }
     val rest = all.filter { it.id !in runningIds }
@@ -573,7 +573,9 @@ fun ChatWithDrawer(
                 .clearAndSetSemantics {},
             drawerContent = {
                 // 只在打开时读盘;每次打开、开着时存储里有对话改过都重读一次
-                val all = remember(open, revision) { if (open) conversations() else emptyList() }
+                val history = remember(open, revision) { if (open) conversations() else emptyList() }
+                val drafts by vm.draftConversations.collectAsState()
+                val all = remember(open, history, drafts, revision) { if (open) vm.withDrafts(history) else emptyList() }
                 val stored = remember(open, revision, ui.conversationId) { if (open) ui.conversationId?.let(conversationTitle) else null }
                 val last = ui.exchanges.lastOrNull()
                 val running = vm.busy()

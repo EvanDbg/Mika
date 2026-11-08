@@ -12,6 +12,9 @@
     <string name="chat_example_multi_step">Amazon で100ドル未満の高評価のワイヤレスイヤホンを3つ探し、メリットとデメリットを比較して</string>
     <string name="chat_example_alarms">明日の朝 9:40、9:50、10:00 にアラームをセットして</string>
     <string name="chat_example_ai_apps">スマホに入っている AI アプリを探し、それぞれに得意なことを聞いて、回答を比較して</string>
+    <string name="chat_example_replace_title">現在の下書きを置き換えますか？</string>
+    <string name="chat_example_replace_body">おすすめのタスクで、入力済みの内容が置き換えられます。</string>
+    <string name="chat_example_replace_action">下書きを置き換える</string>
     <string name="chat_working_on">%1$s で作業中</string>
     <string name="chat_working">作業中</string>
     <string name="share_draft_failed">共有された内容を新しい会話に追加できませんでした</string>

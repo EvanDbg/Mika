@@ -46,6 +46,7 @@ import com.wangzan101.mika.task.TaskRecovery
 import com.wangzan101.mika.task.TriggerOutcomes
 import com.wangzan101.mika.task.TaskService
 import com.wangzan101.mika.task.TaskCenterState
+import com.wangzan101.mika.teach.TeachRuntime
 import com.wangzan101.mika.ui.ChatViewModel
 import com.wangzan101.mika.ui.TaskActions
 import kotlinx.coroutines.CoroutineScope
@@ -110,7 +111,8 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
         com.wangzan101.mika.mcp.McpRuntime(this, settings,
             com.wangzan101.mika.settings.McpUsbSettings(settingsDir,
                 bootId = { android.provider.Settings.Global.getString(contentResolver, android.provider.Settings.Global.BOOT_COUNT) ?: "null" },
-                infoFile = { getExternalFilesDir(null)?.let { java.io.File(it, com.wangzan101.mika.core.mcp.McpUsb.INFO_FILE) } }),
+                infoFile = { getExternalFilesDir(null)?.let { java.io.File(it, com.wangzan101.mika.core.mcp.McpUsb.INFO_FILE) } },
+                migrateTaskOwner = remoteTasks::migrateUsbOwner),
             remoteTasks, deviceAccess,
             com.wangzan101.mika.settings.RelaySettings(settingsDir, com.wangzan101.mika.settings.KeystoreKeyCipher("mika-remote-relay")),
             history)
@@ -267,6 +269,11 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
     /** 浮在别的 App 上的悬浮胶囊。 */
     val capsule: CapsuleController by lazy { CapsuleController(this, taskState, foreground, resources.takeoverQueue) }
 
+    /** 人工示范。onCreate 里建好；在那之前的无障碍事件不采集。 */
+    lateinit var teach: TeachRuntime
+        private set
+    val teachReady: Boolean get() = ::teach.isInitialized
+
     /** 对话页的状态跟进程走:界面关了再打开,正在跑的任务的步骤还在。 */
     val chat: ChatViewModel by lazy {
         val app = this
@@ -352,6 +359,10 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
                     androidx.core.content.FileProvider.getUriForFile(app, com.wangzan101.mika.chat.AttachFilesProvider.authority(app.packageName), file).toString()
                 }.orEmpty()
             },
+            teaching = { teach.blocksTasks() },
+            onTeachingBlocked = {
+                android.widget.Toast.makeText(app, tr(R.string.teach_blocked_task), android.widget.Toast.LENGTH_LONG).show()
+            },
         )
     }
 
@@ -362,6 +373,8 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
         // 界面以外的文字(通知、服务、悬浮胶囊)按 App 语言取
         AppLanguage.applyDefaultLocale(this)
         UiText.source = ResourceTexts { AppLanguage.resources(this) }
+        teach = TeachRuntime(this, taskState)
+        teach.recover()
         registerActivityLifecycleCallbacks(foreground)
         val flags = FeatureFlags.get(this)
         // 用户点了「完全退出」:进程可能被无障碍服务重新拉起。胶囊照样接线(开关按退出算关着,见 CapsuleController),

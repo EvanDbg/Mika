@@ -36,23 +36,49 @@ class SharedDraftStoreTest {
         assertNull(store.read())
     }
 
-    @Test fun replacementAndCleanupNeverLeaveOrphanImages() {
+    @Test fun conversationsKeepTheirImagesUntilTheirOwnDraftIsCleared() {
         val dir = tmp.newFolder()
         val store = SharedDraftStore(dir)
         val one = image(store, "one.jpg", byteArrayOf(1))
         val two = image(store, "two.jpg", byteArrayOf(2))
         assertTrue(store.save(SharedDraft("one", "first", one)))
         assertTrue(store.save(SharedDraft("two", "second", two)))
-        assertFalse(store.imageFile("one.jpg")!!.exists())
+        assertTrue(store.imageFile("one.jpg")!!.exists())
         assertTrue(store.imageFile("two.jpg")!!.exists())
 
         store.imageFile("orphan.tmp")!!.writeText("partial")
         store.cleanup()
-        assertEquals(setOf("draft.json", "two.jpg"), dir.listFiles()?.map { it.name }?.toSet())
+        assertEquals(setOf("draft.json", "one.jpg", "two.jpg"), dir.listFiles()?.map { it.name }?.toSet())
+        assertEquals(listOf("one", "two"), SharedDraftStore(dir).readAll().map { it.conversationId })
         store.clear("one")
+        assertFalse(store.imageFile("one.jpg")!!.exists())
         assertTrue(store.imageFile("two.jpg")!!.exists())
         store.clear("two")
         assertTrue(dir.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun editingAnOlderShareKeepsTheLatestShareAndOnlyReplacesItsOwnImage() {
+        val store = SharedDraftStore(tmp.newFolder())
+        val one = SharedDraft("one", "first", image(store, "one.jpg", byteArrayOf(1)))
+        val two = SharedDraft("two", "second", image(store, "two.jpg", byteArrayOf(2)))
+        assertTrue(store.save(one))
+        assertTrue(store.save(two))
+        val edited = one.copy(text = "edited", image = image(store, "replacement.jpg", byteArrayOf(3)))
+        assertTrue(store.save(edited))
+        assertEquals(listOf(edited, two), store.readAll())
+        assertEquals(two, store.read())
+        assertFalse(store.imageFile("one.jpg")!!.exists())
+        assertTrue(store.imageFile("two.jpg")!!.exists())
+        assertTrue(store.imageFile("replacement.jpg")!!.exists())
+    }
+
+    @Test fun legacySingleDraftFileIsPreservedWhenAnotherConversationIsAdded() {
+        val dir = tmp.newFolder()
+        File(dir, "draft.json").writeText("""{"conversation":"old","text":"keep me"}""")
+        val store = SharedDraftStore(dir)
+        assertEquals(SharedDraft("old", "keep me"), store.read())
+        assertTrue(store.save(SharedDraft("new", "second")))
+        assertEquals(listOf("keep me", "second"), SharedDraftStore(dir).readAll().map { it.text })
     }
 
     @Test fun blankOversizeAndForgedPathsAreRejectedWithoutChangingCurrentDraft() {

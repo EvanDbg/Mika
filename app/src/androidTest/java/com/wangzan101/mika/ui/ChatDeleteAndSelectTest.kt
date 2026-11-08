@@ -4,10 +4,12 @@ import com.wangzan101.mika.ChineseUi
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -71,12 +73,14 @@ class ChatDeleteAndSelectTest {
         override fun decline(key: Int) {}
     }
 
-    private fun vm(impact: DeleteImpact = DeleteImpact(runningTask = false, schedules = 0)) = ChatViewModel(
+    private fun vm(impact: DeleteImpact = DeleteImpact(runningTask = false, schedules = 0), parallel: Boolean = false, attachments: Boolean = false) = ChatViewModel(
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
         MutableStateFlow(TaskState.Idle), MutableStateFlow(Takeover.Stage.None), actions, store,
         deletionImpact = { impact },
         removeConversation = { removed += it; store.delete(it) },
         branchTitle = { it + " · 分支" },
+        parallelFlag = { parallel }, sandboxReady = MutableStateFlow(attachments),
+        io = Dispatchers.Main.immediate,
     )
 
     private fun show(vm: ChatViewModel, drawerOpen: Boolean) {
@@ -91,6 +95,69 @@ class ChatDeleteAndSelectTest {
             }
         }
         compose.waitForIdle()
+    }
+
+    @Test fun typingNewDraftKeepsFocusAndBothDraftsCanBeReopenedFromTheDrawer() {
+        val vm = vm()
+        show(vm, drawerOpen = false)
+        compose.onNodeWithTag("composer-field").performClick().performTextInput("第一份草稿")
+        compose.onNodeWithTag("composer-field").assertIsFocused()
+        compose.onNodeWithContentDescription("新对话").performClick()
+        compose.onNodeWithTag("composer-field").assert(hasText(""))
+        compose.onNodeWithTag("composer-field").performTextReplacement("第二份草稿")
+        compose.onNodeWithContentDescription("菜单").performClick()
+        compose.onNode(hasTestTag("conversation-row") and hasText("第一份草稿")).performClick()
+        compose.onNodeWithTag("composer-field").assertTextContains("第一份草稿")
+        compose.onNodeWithContentDescription("菜单").performClick()
+        compose.onNode(hasTestTag("conversation-row") and hasText("第二份草稿")).performClick()
+        compose.onNodeWithTag("composer-field").assertTextContains("第二份草稿")
+        assertTrue(started.isEmpty())
+    }
+
+    @Test fun parallelConversationSwitchRestoresTextAttachmentAndQuoteTogether() {
+        store.append("a", Turn("天气", "晴", "succeeded"))
+        store.append("b", Turn("订票", "好了", "succeeded"))
+        val vm = vm(parallel = true, attachments = true)
+        compose.runOnUiThread { vm.openConversation("a") }
+        show(vm, drawerOpen = false)
+        compose.onNodeWithTag("composer-field").performTextReplacement("下周的安排")
+        compose.runOnUiThread {
+            vm.quote(QuoteMessage.From.Mika, "晴")
+            vm.attach(listOf("content://test/plan.pdf"))
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("plan.pdf").assertExists()
+        compose.onNodeWithContentDescription("菜单").performClick()
+        compose.onNode(hasTestTag("conversation-row") and hasText("订票")).performClick()
+        compose.onNodeWithTag("composer-field").assert(hasText(""))
+        compose.onNodeWithText("plan.pdf").assertDoesNotExist()
+        compose.onNodeWithTag("composer-field").performTextReplacement("周末的车票")
+        compose.onNodeWithContentDescription("菜单").performClick()
+        compose.onNode(hasTestTag("conversation-row") and hasText("天气")).performClick()
+        compose.onNodeWithTag("composer-field").assertTextContains("下周的安排")
+        compose.onNodeWithText("plan.pdf").assertExists()
+        compose.onNodeWithContentDescription("去掉引用").assertExists()
+        compose.onNodeWithContentDescription(AttachCopy.ADD).assertExists()
+        assertTrue(started.isEmpty())
+    }
+
+    @Test fun savedStateRestoresConversationTextsIntoARecreatedModel() {
+        val restoration = androidx.compose.ui.test.junit4.StateRestorationTester(compose)
+        var current: ChatViewModel? = null
+        restoration.setContent {
+            val model = androidx.compose.runtime.remember { vm() }
+            current = model
+            ChatScreen(model, Prerequisites.Check(emptyList()), MutableStateFlow(null), MutableStateFlow(false),
+                reduceMotion = true, onOpenDrawer = {}, openSettings = {})
+        }
+        compose.runOnIdle { current!!.openConversation("a") }
+        compose.onNodeWithTag("composer-field").performTextReplacement("A preserved")
+        compose.runOnIdle { current!!.openConversation("b") }
+        compose.onNodeWithTag("composer-field").performTextReplacement("B preserved")
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithTag("composer-field").assertTextContains("B preserved")
+        compose.runOnIdle { current!!.openConversation("a") }
+        compose.onNodeWithTag("composer-field").assertTextContains("A preserved")
     }
 
     @Test fun longPressARowAsksThenDeletes() {
