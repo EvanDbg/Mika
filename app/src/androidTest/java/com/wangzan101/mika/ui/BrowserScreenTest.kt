@@ -219,6 +219,9 @@ class BrowserScreenTest {
         compose.onNodeWithText("整理").performClick()
         compose.onNodeWithContentDescription("移除购物页", useUnmergedTree = true).performClick()
         assertEquals(listOf("remove https://shop.example.com/item/1"), calls)
+    }
+
+    @Test
     fun tabsSheetSelectsClosesAndOpensNew() {
         compose.setContent {
             MikaTheme {
