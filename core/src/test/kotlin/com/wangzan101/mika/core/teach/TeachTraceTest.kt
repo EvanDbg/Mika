@@ -135,6 +135,27 @@ class TeachTraceTest {
         assertTrue(s.steps.isEmpty())
     }
 
+    @Test fun allPasswordEventsOmitUnmaskedContent() {
+        val raw = "FakePasswordValue79"
+        for (kind in TeachEventKind.entries) {
+            val captured = TeachTrace.reduce(session(), obs(kind, text = raw,
+                description = raw, title = raw, viewId = "app:id/$raw", password = true), own)
+            assertTrue(kind.name, captured.steps.single().sensitiveOmitted)
+            assertFalse(kind.name, TeachCodec.encode(captured).contains(raw))
+            assertFalse(kind.name, teachLine(captured.steps.single()).contains(raw))
+        }
+    }
+
+    @Test fun legacySensitiveStepsLoseStoredLabelsWithoutChangingOtherSteps() {
+        val session = TeachTrace.reduce(session(), obs(TeachEventKind.Click, text = "ordinary label"), own)
+        val ordinary = session.steps.single()
+        val legacy = ordinary.copy(id = 2, nodeName = "legacy secret", sensitiveOmitted = true)
+        val redacted = TeachTrace.redactStored(session.copy(steps = listOf(ordinary, legacy)))
+        assertEquals(ordinary, redacted.steps.first())
+        assertFalse(TeachCodec.encode(redacted).contains("legacy secret"))
+        assertTrue(redacted.steps.last().needsClarification)
+    }
+
     @Test fun draftStaysPendingAndUnverifiedUntilAccepted() = runBlocking {
         val s = TeachTrace.reduce(session(), obs(TeachEventKind.Click, description = "筛选", title = "列表"), own)
         val model = FakeModel(ModelReply(listOf(Part.Text("试跑成功了，入口不存在。")), StopReason.EndTurn, null))

@@ -185,8 +185,10 @@ class WechatStoreTest {
         val invalid = listOf(
             "not-json",
             "{}",
-            """{"ownerId":"other-owner","botId":"bot"}""",
-            """{"ownerId":"owner","botId":"other-bot"}""",
+            """{"ownerId":"owner","botId":"bot"}""",
+            """{"ownerId":"other-owner","botId":"bot","allowed":true}""",
+            """{"ownerId":"owner","botId":"other-bot","allowed":true}""",
+            """{"ownerId":"owner","botId":"bot","allowed":false}""",
         )
         for (record in invalid) {
             grantFile.writeText(record)
@@ -314,20 +316,25 @@ class WechatStoreTest {
         assertFalse(reopened.journal("acknowledged", peer, "不应重放"))
     }
 
-    @Test fun revocationReportsDeletionFailureAndImmediatelyDisablesMemoryPermission() {
+    @Test fun revocationReplacesARegularGrantThatCannotBeDeletedAndSurvivesRestart() {
         val dir = tmp.newFolder()
         val store = boundStore(dir)
         val peer = store.peer("owner")
         store.setUnlockAllowed(true)
-        val grantFile = File(dir, "unlock.json")
-        assertTrue(grantFile.delete())
-        assertTrue(grantFile.mkdir())
-        File(grantFile, "prevent-delete").writeText("block")
+        val grantFile = object : File(dir, "unlock.json") {
+            override fun delete(): Boolean = false
+        }
+        val reopened = WechatStore(dir, cipher, grantFile)
+        assertTrue(reopened.canUnlock(peer))
 
-        assertThrows(IOException::class.java) { store.setUnlockAllowed(false) }
-        assertFalse(store.unlockAllowed())
-        assertFalse(store.allowUnlock.value)
-        assertFalse(store.canUnlock(peer))
+        reopened.setUnlockAllowed(false)
+
+        assertFalse(reopened.unlockAllowed())
+        assertFalse(reopened.allowUnlock.value)
+        assertFalse(reopened.canUnlock(peer))
+        assertTrue(grantFile.isFile)
+        assertFalse(WechatStore(dir, cipher).unlockAllowed())
+        assertFalse(WechatStore(dir, cipher).canUnlock(peer))
     }
 
     @Test fun failedRebindRevokesUnlockBeforeUpdatingCredentials() {

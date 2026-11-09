@@ -1,9 +1,16 @@
 package com.wangzan101.mika.ui
 
 import com.wangzan101.mika.i18n.AppLanguage
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import com.wangzan101.mika.ui.components.KeyboardDismissArea
+import com.wangzan101.mika.ui.components.glassSource
+import com.wangzan101.mika.ui.components.rememberGlassBackdrop
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -50,6 +57,7 @@ import com.wangzan101.mika.MikaApp
 import com.wangzan101.mika.about.Diagnostics
 import com.wangzan101.mika.about.DiagnosticsCollector
 import com.wangzan101.mika.about.MikaLinks
+import com.wangzan101.mika.about.ReleaseInfo
 import com.wangzan101.mika.chat.ConversationStore
 import com.wangzan101.mika.chat.CurrentChat
 import com.wangzan101.mika.chat.SharedDraft
@@ -78,6 +86,8 @@ class MainActivity : ComponentActivity() {
     private var requestedSharedDraft by mutableStateOf<SharedDraftRequest?>(null)
     private var shareJob: Job? = null
     private var shareSerial = 0L
+    private var shareInCurrent = false
+    private var shareHandled = false
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // 用户选过「不再询问」时系统不再弹窗,只能去设置里打开
@@ -93,14 +103,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) {
+            (application as MikaApp).chat.cancelPendingSharedDraft()
+        }
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
         takeTeach(intent)
-        val pendingShare = (application as MikaApp).sharedDrafts.read()
-        val restoringAcceptedShare = savedInstanceState != null && intent.action == Intent.ACTION_SEND && pendingShare != null &&
-            (application as MikaApp).conversations.currentChat() == CurrentChat.Open(pendingShare.conversationId)
-        // 已落盘但还没来得及换掉 intent 时,重建直接恢复;真正的冷启动分享始终作为新一次分享收下。
-        if (!restoringAcceptedShare && (savedInstanceState == null || intent.action == Intent.ACTION_SEND)) {
-            receiveShare(intent)
+        shareInCurrent = savedInstanceState?.getBoolean(STATE_SHARE_IN_CURRENT, false) ?: false
+        shareHandled = savedInstanceState?.getBoolean(STATE_SHARE_HANDLED, false) ?: false
+        // 已处理完的分享在旋转/重建时不重复触发;真正的冷启动分享或尚未完成的后台分享继续收下。
+        if (!shareHandled && (savedInstanceState == null || intent.action == Intent.ACTION_SEND)) {
+            receiveShare(intent, inCurrentConversation = shareInCurrent)
         }
         monitor = SystemStatusMonitor(this, PhoneServices.of(this).shellControl)
         val store = ProviderStore.get(this)
@@ -115,10 +127,10 @@ class MainActivity : ComponentActivity() {
                         store, monitor, ::perform, requestedConversation, { requestedConversation = null }, requestedSharedDraft,
                         onSharedDraftOpened = { accepted, draft ->
                             requestedSharedDraft = null
-                            if (accepted) {
-                                // 接受后重建不再把最初的分享当成一次新分享。
-                                setIntent(Intent(this@MainActivity, MainActivity::class.java))
-                            } else {
+                            shareHandled = true
+                            // 处理完后换掉 intent,避免后续旋转屏幕再次把这次分享当成新分享或重复弹失败提示。
+                            setIntent(Intent(this@MainActivity, MainActivity::class.java))
+                            if (!accepted) {
                                 (application as MikaApp).sharedDrafts.discard(draft.image)
                                 Toast.makeText(this@MainActivity, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
                             }
@@ -134,35 +146,56 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        val app = application as MikaApp
+        shareJob?.cancel()
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
+        if (requestedConversation != null || intent.getBooleanExtra(EXTRA_OPEN_TEACH, false)) {
+            app.chat.cancelPendingSharedDraft()
+        }
         takeTeach(intent)
-        requestedSharedDraft?.let { (application as MikaApp).sharedDrafts.discard(it.draft.image) }
+        requestedSharedDraft?.let { app.sharedDrafts.discard(it.draft.image) }
         requestedSharedDraft = null
-        receiveShare(intent)
+        // 界面已在后台存活时收到分享:放入当前打开的会话,而不是新建会话。
+        shareInCurrent = true
+        shareHandled = false
+        receiveShare(intent, inCurrentConversation = true)
     }
 
-    private fun receiveShare(intent: Intent) {
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_SHARE_IN_CURRENT, shareInCurrent)
+        outState.putBoolean(STATE_SHARE_HANDLED, shareHandled)
+    }
+
+    private fun rejectShare() {
+        shareHandled = true
+        setIntent(Intent(this, MainActivity::class.java))
+        Toast.makeText(this, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun receiveShare(intent: Intent, inCurrentConversation: Boolean) {
         if (intent.action != Intent.ACTION_SEND) return
         shareJob?.cancel()
+        (application as MikaApp).chat.cancelPendingSharedDraft()
         val type = intent.type.orEmpty()
         val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
         if (text.length > SharedDraftStore.MAX_TEXT_CHARS) {
-            Toast.makeText(this, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
+            rejectShare()
             return
         }
         when {
             type == "text/plain" -> {
                 if (text.isBlank()) {
-                    Toast.makeText(this, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
+                    rejectShare()
                     return
                 }
-                requestedSharedDraft = SharedDraftRequest(SharedDraft("", text), ++shareSerial)
+                requestedSharedDraft = SharedDraftRequest(SharedDraft("", text), ++shareSerial, inCurrentConversation)
             }
             type.startsWith("image/") -> {
                 val uri = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
                     else @Suppress("DEPRECATION") intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri == null || (intent.clipData?.itemCount ?: 0) > 1) {
-                    Toast.makeText(this, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
+                    rejectShare()
                     return
                 }
                 shareJob = lifecycleScope.launch {
@@ -173,13 +206,15 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         null
                     }
-                    if (prepared == null) Toast.makeText(this@MainActivity, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
-                    else requestedSharedDraft = SharedDraftRequest(prepared, ++shareSerial)
+                    if (prepared == null) rejectShare()
+                    else requestedSharedDraft = SharedDraftRequest(prepared, ++shareSerial, inCurrentConversation)
                 }
             }
-            else -> Toast.makeText(this, R.string.share_draft_failed, Toast.LENGTH_SHORT).show()
+            else -> rejectShare()
         }
     }
+
+    private var updateWatch: Job? = null
 
     override fun onStart() {
         super.onStart()
@@ -187,7 +222,12 @@ class MainActivity : ComponentActivity() {
         com.wangzan101.mika.quit.MikaQuit.resume(this)
         monitor.start()
         // 每次打开都悄悄查一次新版本(两分钟内连着打开的只查一次),失败不吭声
-        (application as MikaApp).updates.autoCheckInBackground()
+        val app = application as MikaApp
+        val check = app.updates.autoCheckInBackground()
+        updateWatch = lifecycleScope.launch {
+            check.join()
+            app.automaticUpdates.watch(app.updates.state)
+        }
         // 电脑连接开着、服务却不在(被系统停过、从后台没能起来):界面在前台时补起来
         (application as MikaApp).mcp.ensureRunning()
     }
@@ -198,6 +238,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        updateWatch?.cancel()
         monitor.stop()
         super.onStop()
     }
@@ -207,6 +248,9 @@ class MainActivity : ComponentActivity() {
         // 还没绑到对话的私有副本随这次接收结束清掉;已接受的草稿由 CurrentChat 恢复,不在这里删除。
         requestedSharedDraft?.let { (application as MikaApp).sharedDrafts.discard(it.draft.image) }
         requestedSharedDraft = null
+        if (isFinishing) {
+            (application as MikaApp).chat.cancelPendingSharedDraft()
+        }
         super.onDestroy()
     }
 
@@ -281,6 +325,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_CONVERSATION = "open_conversation"
         const val EXTRA_OPEN_TEACH = "open_teach"
         const val EXTRA_TEACH_GOAL = "teach_goal"
+        private const val STATE_SHARE_IN_CURRENT = "share_in_current"
+        private const val STATE_SHARE_HANDLED = "share_handled"
         private const val TAG = "MikaMain"
     }
 }
@@ -297,7 +343,7 @@ internal fun openInBrowser(context: Context, url: String) {
 /** 依次试 [candidates],第一个 [start] 成功的就停;都不行返回 false。系统设置页各家不一定都有,靠这个退回通用页。 */
 internal fun <T> firstThatStarts(candidates: List<T>, start: (T) -> Boolean): Boolean = candidates.any(start)
 
-private data class SharedDraftRequest(val draft: SharedDraft, val serial: Long)
+private data class SharedDraftRequest(val draft: SharedDraft, val serial: Long, val inCurrentConversation: Boolean = false)
 
 /**
  * 页面切换:对话页是根,侧栏和设置等入口把页面压进 [NavStack],返回键和页面上的返回按钮都走 [NavStack.back]。
@@ -341,6 +387,8 @@ private fun MikaRoot(
     val app = context.applicationContext as MikaApp
     // 查到的新版本:侧栏、设置首页、关于页的红点都看它
     val updateState by app.updates.state.collectAsState()
+    val autoUpdate by app.automaticUpdates.enabled.collectAsState()
+    val readyUpdate by app.automaticUpdates.ready.collectAsState()
     LaunchedEffect(requestedConversation) {
         if (requestedConversation != null) {
             app.chat.openConversation(requestedConversation)
@@ -351,7 +399,7 @@ private fun MikaRoot(
     LaunchedEffect(sharedDraft) {
         val draft = sharedDraft?.draft
         if (draft != null) {
-            val accepted = app.chat.openSharedDraft(draft)
+            val accepted = app.chat.openSharedDraft(draft, inCurrentConversation = sharedDraft.inCurrentConversation)
             if (accepted) nav.reset()
             onSharedDraftOpened(accepted, draft)
         }
@@ -436,33 +484,58 @@ private fun MikaRoot(
                 updateAvailable = AboutCopy.drawerDot(updateState),
                 reopen = nav.reopenDrawer,
                 onReopened = nav::drawerReopened,
+                resetKey = nav.resetSerial,
             ) { openDrawer ->
-                ChatScreen(
-                    vm = app.chat,
-                    check = check,
-                    frames = app.taskState.frames,
-                    webOpen = app.tasks.webScreenOpen,
-                    reduceMotion = MikaTheme.reduceMotion,
-                    onOpenDrawer = openDrawer,
-                    openSettings = { nav.push(Route.Settings) },
-                    openRun = { runId = it; nav.push(Route.Run) },
-                    phoneSetupNeeded = phoneSetupNeeded && status.builtinShell != BuiltinShellStatus.Running,
-                    openPhoneSetup = { onFix(Fix.OpenPhoneSetup) },
-                    loadSource = { id ->
-                        withContext(Dispatchers.IO) { evidenceSource(RunStore(context).events(id)) { ConfirmationNotifier.appLabel(context, it) } }
-                    },
-                    openSource = { id, legacy ->
-                        sourceRunId = id
-                        sourceLegacyText = legacy
-                        nav.push(Route.Source)
-                    },
-                    voice = app.voice,
-                    openSpeechModel = { nav.push(Route.SpeechModel) },
-                    onOpenTeach = { hint ->
-                        app.teach.prefill(hint)
-                        nav.push(Route.Teach)
-                    },
-                )
+                Box(Modifier.fillMaxSize()) {
+                    val readyRelease = readyUpdate?.takeIf { autoUpdate && it.apkUrl == updateState.update?.apkUrl }
+                    val updateBackdrop = if (readyRelease != null) rememberGlassBackdrop() else null
+                    Box(Modifier.fillMaxSize().glassSource(updateBackdrop)) {
+                        ChatScreen(
+                            vm = app.chat,
+                            check = check,
+                            frames = app.taskState.frames,
+                            webOpen = app.tasks.webScreenOpen,
+                            reduceMotion = MikaTheme.reduceMotion,
+                            onOpenDrawer = openDrawer,
+                            openSettings = { nav.push(Route.Settings) },
+                            openRun = { runId = it; nav.push(Route.Run) },
+                            phoneSetupNeeded = phoneSetupNeeded && status.builtinShell != BuiltinShellStatus.Running,
+                            openPhoneSetup = { onFix(Fix.OpenPhoneSetup) },
+                            loadSource = { id ->
+                                withContext(Dispatchers.IO) { evidenceSource(RunStore(context).events(id)) { ConfirmationNotifier.appLabel(context, it) } }
+                            },
+                            openSource = { id, legacy ->
+                                sourceRunId = id
+                                sourceLegacyText = legacy
+                                nav.push(Route.Source)
+                            },
+                            voice = app.voice,
+                            openSpeechModel = { nav.push(Route.SpeechModel) },
+                            onOpenTeach = { hint ->
+                                app.teach.prefill(hint)
+                                nav.push(Route.Teach)
+                            },
+                        )
+                    }
+                    var installUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
+                    readyRelease?.let { release ->
+                        UpdateReadyCapsule(
+                            release,
+                            onInstall = {
+                                installUpdate = release
+                                app.automaticUpdates.dismiss(release)
+                            },
+                            onTimeout = { app.automaticUpdates.dismiss(release) },
+                            onDisable = { app.automaticUpdates.setEnabled(false) },
+                            backdrop = updateBackdrop,
+                            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 54.dp),
+                        )
+                    }
+                    installUpdate?.let { release ->
+                        UpdateSheet(release, BuildConfig.VERSION_NAME, BuildConfig.BETA,
+                            onOpenUrl = { openInBrowser(context, it) }, onDismiss = { installUpdate = null })
+                    }
+                }
             }
         }
         Route.Settings -> {
@@ -488,6 +561,8 @@ private fun MikaRoot(
                 )
             },
             onCheck = app.updates::checkInBackground,
+            autoUpdate = autoUpdate,
+            onAutoUpdate = app.automaticUpdates::setEnabled,
             onOpenUrl = { openInBrowser(context, it) },
             onOpenLicense = { nav.push(Route.License) },
             onBack = back,

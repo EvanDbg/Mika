@@ -3,6 +3,7 @@ package com.wangzan101.mika.teach
 import com.wangzan101.mika.core.teach.TeachCodec
 import com.wangzan101.mika.core.teach.TeachSession
 import com.wangzan101.mika.core.teach.TeachSkill
+import com.wangzan101.mika.core.teach.TeachTrace
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -30,7 +31,9 @@ class TeachFiles(dir: File) {
             delete()
             return null
         }
-        return session
+        val redacted = TeachTrace.redactStored(session)
+        if (redacted != session) runCatching { save(redacted) }
+        return redacted
     }
 
     @Synchronized fun save(session: TeachSession) {

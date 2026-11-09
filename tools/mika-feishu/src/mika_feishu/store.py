@@ -18,6 +18,8 @@ class Store:
           CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, payload TEXT NOT NULL, state TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS sessions(peer TEXT PRIMARY KEY, conversation TEXT, task_id TEXT,
             uncertain INTEGER NOT NULL DEFAULT 0, notice TEXT NOT NULL DEFAULT '');
+          CREATE TABLE IF NOT EXISTS questions(peer TEXT PRIMARY KEY, task_id TEXT NOT NULL,
+            notice TEXT NOT NULL, message_ids TEXT NOT NULL);
         """)
         self.db.commit()
 
@@ -53,3 +55,14 @@ class Store:
         self.session(peer)
         self.execute("UPDATE sessions SET " + ",".join(k + "=?" for k in values) + " WHERE peer=?",
                      (*values.values(), peer))
+
+    def question_messages(self, peer, task_id, notice):
+        rows = self.execute("SELECT message_ids FROM questions WHERE peer=? AND task_id=? AND notice=?",
+                            (peer, task_id, notice))
+        return json.loads(rows[0]["message_ids"]) if rows else None
+
+    def remember_question(self, peer, task_id, notice, message_ids):
+        prior_ids = self.question_messages(peer, task_id, notice) or []
+        ids = list(dict.fromkeys([*prior_ids, *(message_ids or [])]))[-50:]
+        self.execute("INSERT OR REPLACE INTO questions VALUES(?,?,?,?)",
+                     (peer, task_id, notice, json.dumps(ids)))

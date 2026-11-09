@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import threading
 import time
 
 from .api import ApiError
@@ -9,7 +10,7 @@ from .api import ApiError
 TERMINAL = {"done", "failed", "cancelled"}
 KNOWN = TERMINAL | {"starting", "running", "paused", "waiting_for_answer", "waiting_on_phone"}
 HELP = """Mika phone assistant (paired users, private messages only)
-Send text to start a task, or answer the current question.
+Send text to start a task or answer the current question shown in Feishu.
 /status Show status and results
 /answer TEXT Answer a question
 /steer TEXT Add instructions to a running task
@@ -39,7 +40,7 @@ def normalize(data):
     except (ValueError, TypeError, KeyError, AttributeError):
         return None
     return {"id": msg["message_id"], "user": user, "chat": msg["chat_id"], "text": text,
-            "created_at": int(msg["create_time"]) / 1000}
+            "created_at": int(msg["create_time"]) / 1000, "reply_to": msg.get("parent_id")}
 
 
 def describe(task):
@@ -68,6 +69,8 @@ class Bridge:
         self.api, self.store, self.send = api, store, send
         self.allowed = set(allowed_users)
         self.pair_code, self.pair_deadline = None, 0
+        # Do not publish a polled status while the message worker is replacing the tracked task.
+        self.session_lock = threading.Lock()
 
     def owners(self):
         return self.allowed | {r["id"] for r in self.store.execute("SELECT id FROM owners")}
@@ -98,15 +101,24 @@ class Bridge:
 
     def reply(self, event, text, suffix="reply"):
         key = hashlib.sha256((event["id"] + suffix).encode()).hexdigest()
-        self.send(event["chat"], text, key)
+        return self.send(event["chat"], text, key)
+
+    def can_answer(self, peer, task, event):
+        if not task or task["status"] != "waiting_for_answer":
+            return False
+        notice = hashlib.sha256(describe(task).encode()).hexdigest()
+        message_ids = self.store.question_messages(peer, task["task_id"], notice)
+        parent = event.get("reply_to")
+        return message_ids is not None and (not parent or parent in message_ids)
 
     def recover(self):
         # Claimed events are never replayed after a crash: execution may already have happened.
         for row in self.store.execute("SELECT * FROM inbox WHERE state='processing'"):
             event = json.loads(row["payload"])
-            self.store.update(event["chat"] + ":" + event["user"], uncertain=1)
-            self.reply(event, "The connector stopped while processing a message. Execution is uncertain; it was not replayed. Check the phone, "
-                       "then send /reset checked.", "recovery")
+            if event["user"] in self.owners():
+                self.store.update(event["chat"] + ":" + event["user"], uncertain=1)
+                self.reply(event, "The connector stopped while processing a message. Execution is uncertain; it was not replayed. Check the phone, "
+                           "then send /reset checked.", "recovery")
             self.store.execute("UPDATE inbox SET state='done' WHERE id=?", (row["id"],))
 
     def work_once(self):
@@ -114,11 +126,14 @@ class Bridge:
         if not event:
             return False
         try:
+            if event["user"] not in self.owners():
+                return True
             # Pending events may have been persisted before a long disconnect.
             if time.time() - event.get("created_at", 0) > 300:
                 self.reply(event, "This queued message expired; no phone action was submitted.", "expired")
             else:
-                self.handle(event)
+                with self.session_lock:
+                    self.handle(event)
         except ApiError as exc:
             if exc.uncertain:
                 self.store.update(event["chat"] + ":" + event["user"], uncertain=1)
@@ -148,7 +163,12 @@ class Bridge:
         if command == "/status":
             if not session["task_id"]:
                 return self.reply(e, "No known task. " + ("The last write is uncertain; check the phone." if session["uncertain"] else ""))
-            return self.reply(e, describe(self.api.task(session["task_id"])))
+            task = self.api.task(session["task_id"])
+            text = describe(task)
+            message_ids = self.reply(e, text)
+            if task["status"] == "waiting_for_answer":
+                self.store.remember_question(peer, task["task_id"], hashlib.sha256(text.encode()).hexdigest(), message_ids)
+            return
         if session["uncertain"]:
             return self.reply(e, "An operation is uncertain. New writes are blocked. Check the phone or task desk, then send /reset checked.")
         task = self.api.task(session["task_id"]) if session["task_id"] else None
@@ -166,6 +186,8 @@ class Bridge:
             action = command[1:]
             if action == "answer" and task["status"] != "waiting_for_answer":
                 return self.reply(e, "There is no remotely answerable question. Use the phone for confirmations and takeovers.")
+            if action == "answer" and not self.can_answer(peer, task, e):
+                return self.reply(e, "This reply does not match the current question. Use /status to see it before answering.")
             if action == "steer" and task["status"] != "running":
                 return self.reply(e, "Only a running task accepts additional instructions.")
             result = self.api.action(task["task_id"], action, None if action == "cancel" else arg)
@@ -174,6 +196,8 @@ class Bridge:
             return self.reply(e, "Request accepted. Check /status or the final notification for the actual outcome.")
         if command.startswith("/"):
             return self.reply(e, "Unknown command. Send /help.")
+        if (e.get("reply_to") or active and task["status"] == "waiting_for_answer") and not self.can_answer(peer, task, e):
+            return self.reply(e, "This reply does not match the current question. Use /status to see it before answering.")
         if active:
             if task["status"] == "waiting_for_answer":
                 self.api.action(task["task_id"], "answer", text)
@@ -208,16 +232,21 @@ class Bridge:
                     raise ApiError("unknown_task_status")
                 if status in {"starting", "running"}:
                     continue  # Progress is available on demand; avoid flooding Feishu.
-                notice = hashlib.sha256(describe(task).encode()).hexdigest()
-                if notice == s["notice"]:
-                    continue
-                self.send(chat, describe(task), hashlib.sha256((s["task_id"] + notice).encode()).hexdigest())
-                self.store.execute("UPDATE sessions SET notice=? WHERE peer=? AND task_id=?",
-                                   (notice, s["peer"], s["task_id"]))
-                if status in TERMINAL:
-                    # Keep the ID for /status and conversation continuity, skip further polling.
+                with self.session_lock:
+                    current = self.store.session(s["peer"])
+                    if current["task_id"] != s["task_id"]:
+                        continue
+                    text = describe(task)
+                    notice = hashlib.sha256(text.encode()).hexdigest()
+                    saved_notice = "terminal:" + notice if status in TERMINAL else notice
+                    if saved_notice == current["notice"] and (status != "waiting_for_answer" or
+                            self.store.question_messages(s["peer"], s["task_id"], notice) is not None):
+                        continue
+                    message_ids = self.send(chat, text, hashlib.sha256((s["task_id"] + notice).encode()).hexdigest())
+                    if status == "waiting_for_answer":
+                        self.store.remember_question(s["peer"], s["task_id"], notice, message_ids)
                     self.store.execute("UPDATE sessions SET notice=? WHERE peer=? AND task_id=?",
-                                       ("terminal:" + notice, s["peer"], s["task_id"]))
+                                       (saved_notice, s["peer"], s["task_id"]))
             except ApiError as exc:
                 if exc.status == 404 or exc.code.startswith("incompatible") or exc.code == "unknown_task_status":
                     notice = "error:" + exc.code

@@ -20,6 +20,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -75,6 +77,7 @@ class UsageLedger(
     private val now: () -> Long = System::currentTimeMillis,
     private val flushDelayMs: Long = 2_000,
     private val keepDays: Int = KEEP_DAYS,
+    private val zone: ZoneId = ZoneId.systemDefault(),
 ) : UsageSink {
     private data class Cell(val hour: Long, val key: UsageKey)
 
@@ -116,6 +119,17 @@ class UsageLedger(
 
     fun snapshot(): UsageSnapshot = synchronized(lock) {
         UsageSnapshot(cells.map { (c, n) -> UsageRow(c.hour, c.key, n) }, HashMap(names))
+    }
+
+    /** 这家服务商在当前本地日历日的已报告输入加输出；与用量页的日期和计量口径一致。 */
+    fun providerTokensToday(providerId: String): Long {
+        val today = Instant.ofEpochMilli(now()).atZone(zone).toLocalDate()
+        return synchronized(lock) {
+            cells.entries.sumOf { (cell, counts) ->
+                val day = Instant.ofEpochMilli(cell.hour * HOUR_MS).atZone(zone).toLocalDate()
+                if (cell.key.providerId == providerId && day == today) counts.input + counts.output else 0L
+            }
+        }
     }
 
     /** 有没写出的改动就当场写出(后台线程定时调;测试和退出前也可直接调)。写失败时留着改动,下次再写。 */

@@ -108,7 +108,10 @@ object TeachTrace {
         if (event.displayId != TEACH_MAIN_DISPLAY) return session
         val pkg = event.packageName?.trim()?.takeIf { it.isNotEmpty() } ?: return session
         if (pkg == ownPackage) return session
-        val built = build(session, event, pkg) ?: return session
+        val safe = if (event.password) {
+            event.copy(className = null, title = null, text = null, description = null, viewId = null)
+        } else event
+        val built = build(session, safe, pkg) ?: return session
         val last = session.steps.lastOrNull()
         if (last != null && merge(last, built, event.atMs)) {
             val merged = last.copy(
@@ -128,6 +131,15 @@ object TeachTrace {
 
     fun remove(session: TeachSession, id: Int): TeachSession =
         session.copy(steps = session.steps.filterNot { it.id == id })
+
+    /** 旧版可能把已标记为敏感的事件内容存成节点标签或窗口。 */
+    fun redactStored(session: TeachSession): TeachSession = session.copy(steps = session.steps.map { step ->
+        if (!step.sensitiveOmitted) step else {
+            val insufficient = step.kind != TeachKind.Scroll
+            step.copy(window = null, nodeName = null, viewId = null,
+                insufficient = insufficient, needsClarification = insufficient)
+        }
+    })
 
     /** 订正或说明里有敏感内容则不改、不落盘。空白表示去掉。 */
     fun annotate(session: TeachSession, id: Int, correction: String?, explanation: String?): TeachEdit {
@@ -151,7 +163,7 @@ object TeachTrace {
             TeachEventKind.Window -> TeachKind.Window
         }
         val typedSecret = event.text?.takeIf {
-            kind == TeachKind.Type && (event.password || SensitiveFilter.hit(it) != null)
+            kind == TeachKind.Type && SensitiveFilter.hit(it) != null
         }
         val window = keep(event.title, typedSecret) ?: keep(specificClass(event.className), typedSecret)
         val name = when (kind) {

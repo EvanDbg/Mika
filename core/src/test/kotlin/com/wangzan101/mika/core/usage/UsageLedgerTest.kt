@@ -10,6 +10,8 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.time.Instant
+import java.time.ZoneId
 
 class UsageLedgerTest {
     @get:Rule val tmp = TemporaryFolder()
@@ -59,6 +61,25 @@ class UsageLedgerTest {
         assertEquals(UsageCounts(2, 2, 0, 1, 0), l.row(1000, light))
         assertEquals(UsageCounts(4, 4, 0, 1, 0), l.row(1001, main))
         assertEquals(mapOf("p1" to "服务商甲", "p2" to "服务商乙"), l.snapshot().providerNames)
+    }
+
+    @Test fun providerBudgetTotalsAllModelsAndPurposesOnTheLocalCalendarDay() {
+        val utc = ZoneId.of("UTC")
+        clock = Instant.parse("2026-11-09T12:00:00Z").toEpochMilli()
+        val l = UsageLedger(file, now = { clock }, zone = utc)
+        l.record(main, Usage(100, 20, cachedInputTokens = 60))
+        l.record(light.copy(model = "m2"), Usage(50, 5))
+        l.record(other, Usage(999, 999))
+        assertEquals("同一家跨模型、跨用途相加，缓存输入不重复计", 175L, l.providerTokensToday("p1"))
+        assertEquals(1_998L, l.providerTokensToday("p2"))
+        assertEquals(0L, l.providerTokensToday("missing"))
+
+        clock = Instant.parse("2026-11-09T23:59:59Z").toEpochMilli()
+        assertEquals(175L, l.providerTokensToday("p1"))
+        clock = Instant.parse("2026-11-10T00:00:00Z").toEpochMilli()
+        assertEquals("本地日期变更后重新计数", 0L, l.providerTokensToday("p1"))
+        l.record(light, Usage(7, 3))
+        assertEquals(10L, l.providerTokensToday("p1"))
     }
 
     @Test fun versionMovesOnEveryRecord() {

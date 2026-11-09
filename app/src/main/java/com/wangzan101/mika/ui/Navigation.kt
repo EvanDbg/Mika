@@ -27,6 +27,10 @@ class NavStack(initial: List<Route> = listOf(Route.Chat), fromDrawer: Boolean = 
     var reopenDrawer: Boolean by mutableStateOf(false)
         private set
 
+    /** 每次外部跳转或系统分享回到对话页时递增,让已展开的侧栏一并收起。 */
+    var resetSerial: Int by mutableStateOf(0)
+        private set
+
     val current: Route get() = stack.last()
     val canGoBack: Boolean get() = stack.size > 1
 
@@ -67,6 +71,7 @@ class NavStack(initial: List<Route> = listOf(Route.Chat), fromDrawer: Boolean = 
         fromDrawer = false
         reopenDrawer = false
         stack = listOf(Route.Chat)
+        resetSerial++
     }
 
     companion object {

@@ -116,6 +116,7 @@ fun SettingsScreen(
     var muteTarget by remember { mutableStateOf(flags.muteTarget()) }
     var operatingPace by remember { mutableStateOf(flags.operatingPace()) }
     var stepLimit by remember { mutableStateOf(flags.taskStepLimit()) }
+    var tokenBudget by remember { mutableStateOf(flags.taskTokenBudget()) }
     var selfConfig by remember { mutableStateOf(flags.selfConfig()) }
     var capsuleMode by remember { mutableStateOf(flags.capsuleMode()) }
     var capsuleIdleOpacity by remember { mutableStateOf(flags.capsuleIdleOpacity()) }
@@ -213,6 +214,7 @@ fun SettingsScreen(
             autonomous = autonomous, onAutonomous = onAutonomous,
             operatingPace = operatingPace, onOperatingPace = { flags.setOperatingPace(it); operatingPace = it },
             stepLimit = stepLimit, onStepLimit = { flags.setTaskStepLimit(it); stepLimit = it },
+            tokenBudget = tokenBudget, onTokenBudget = { flags.setTaskTokenBudget(it); tokenBudget = it },
             selfConfig = selfConfig, onSelfConfig = { flags.setSelfConfig(it); selfConfig = it },
         )
         SettingsPage.Language -> LanguageScreen(language, onLanguage = { AppLanguage.set(context, it) }, onBack = toHome)

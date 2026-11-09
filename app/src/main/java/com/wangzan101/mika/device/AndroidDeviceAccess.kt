@@ -96,7 +96,13 @@ internal class AndroidDeviceAccessPort(context: Context, private val helper: () 
         val pinPads = mutableListOf<CredentialTarget>()
         val diagnostics = mutableListOf<String>()
         var passwordNodes = 0
-        val systemUi = service.windowsOn(Display.DEFAULT_DISPLAY).mapNotNull { w ->
+        val windows = service.windowsOn(Display.DEFAULT_DISPLAY)
+        diagnostics += "display_windows=${windows.size}"
+        windows.take(MAX_WINDOW_DIAGNOSTICS).forEachIndexed { index, window ->
+            diagnostics += KeyguardDiagnostics.windowInfo(index, window.type, window.root?.packageName,
+                window.isFocused, window.isActive)
+        }
+        val systemUi = windows.mapNotNull { w ->
             w.root?.takeIf { it.packageName?.toString() == SYSTEM_UI }?.let { w to it }
         }
         diagnostics += "systemui_windows=${systemUi.size}"
@@ -163,6 +169,7 @@ internal class AndroidDeviceAccessPort(context: Context, private val helper: () 
     private companion object {
         const val TAG = "MikaDeviceAccess"
         const val SYSTEM_UI = "com.android.systemui"
+        const val MAX_WINDOW_DIAGNOSTICS = 6
         const val MAX_FIELD_DIAGNOSTICS = 8
         const val MAX_DIAGNOSTICS = 20
     }

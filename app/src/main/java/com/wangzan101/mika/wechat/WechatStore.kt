@@ -10,7 +10,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.util.UUID
 
 @Serializable
@@ -33,14 +32,21 @@ private data class WechatState(
 )
 
 @Serializable
-private data class WechatUnlockGrant(val ownerId: String, val botId: String)
+private data class WechatUnlockGrant(
+    val ownerId: String = "",
+    val botId: String = "",
+    val allowed: Boolean = false,
+)
 
 /** 凭证与运行状态分开保存：令牌加密，游标和未交任务的消息原子落盘。 */
-class WechatStore(private val dir: File, private val cipher: KeyCipher) {
+class WechatStore(
+    private val dir: File,
+    private val cipher: KeyCipher,
+    private val unlockFile: File = File(dir, "unlock.json"),
+) {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val credentials = File(dir, "account.enc")
     private val stateFile = File(dir, "state.json")
-    private val unlockFile = File(dir, "unlock.json")
     @Volatile private var account: WechatAccount? = readAccount()
     private var state = readState()
     private val _allowUnlock = MutableStateFlow(readUnlockAllowed())
@@ -87,15 +93,15 @@ class WechatStore(private val dir: File, private val cipher: KeyCipher) {
 
     @Synchronized fun unlockAllowed() = _allowUnlock.value
 
-    /** 授权单独落盘，撤销只删授权文件，不依赖消息账本能否写入。 */
+    /** 授权和撤权都原子替换同一条记录；删除失败不能让旧授权在重启后重新生效。 */
     @Synchronized fun setUnlockAllowed(value: Boolean) {
         if (!value) {
             _allowUnlock.value = false
-            if (unlockFile.exists() && !unlockFile.delete()) throw IOException("WeChat unlock permission could not be removed")
+            writeAtomic(unlockFile, json.encodeToString(WechatUnlockGrant.serializer(), WechatUnlockGrant()).toByteArray())
             return
         }
         val current = checkNotNull(account) { "Bind WeChat before allowing unlock" }
-        val grant = WechatUnlockGrant(current.ownerId, current.botId)
+        val grant = WechatUnlockGrant(current.ownerId, current.botId, allowed = true)
         writeAtomic(unlockFile, json.encodeToString(WechatUnlockGrant.serializer(), grant).toByteArray())
         _allowUnlock.value = true
     }
@@ -159,7 +165,7 @@ class WechatStore(private val dir: File, private val cipher: KeyCipher) {
         if (!unlockFile.isFile) return false
         return runCatching {
             val grant = json.decodeFromString(WechatUnlockGrant.serializer(), unlockFile.readText())
-            grant.ownerId == current.ownerId && grant.botId == current.botId
+            grant.allowed && grant.ownerId == current.ownerId && grant.botId == current.botId
         }.getOrDefault(false)
     }
 

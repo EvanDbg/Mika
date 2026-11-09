@@ -164,8 +164,10 @@ class TaskService : Service() {
     /** 起动一件排队项;先确认已经写盘,起不来就放回队列,别停在 claim 状态。 */
     private fun startFollowUp(item: QueuedFollowUp) {
         if (!center.persistFollowUp(item)) return
-        runCatching { startNew(item.text, item.conversationId, followUp = item) }
-            .onFailure { center.followUps.add(item) }
+        runCatching {
+            startNew(item.text, item.conversationId, provenance = item.provenance, followUp = item,
+                channelPeer = item.channelPeer, channelMessageId = item.channelMessageId)
+        }.onFailure { center.followUps.add(item) }
     }
 
     private fun channelFor(peer: ChannelPeer): Channel = when (peer.channelId) {
@@ -328,7 +330,8 @@ class TaskService : Service() {
         // 插话到的时候那个任务已经收尾:作为这个对话的下一件事,不因服务还在收尾而丢掉。
         // 走同一个持久队列:即使对话刚好空着,也先写盘再认领和开始。
         if (messageId != null && requestedConversation != null) {
-            val item = QueuedFollowUp(messageId, requestedConversation, newGoal, System.currentTimeMillis(), QueuedSource.Fallback)
+            val item = QueuedFollowUp(messageId, requestedConversation, newGoal, System.currentTimeMillis(), QueuedSource.Fallback,
+                provenance = provenance, channelPeer = channelPeer, channelMessageId = channelMessageId)
             startFollowUp(item)
             keepForeground()
             return

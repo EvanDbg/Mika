@@ -1,5 +1,6 @@
 package com.wangzan101.mika.about
 
+import android.net.Network
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -8,10 +9,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import okhttp3.Call
+import okhttp3.ConnectionPool
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.net.InetAddress
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -29,13 +33,22 @@ class ProxiedApkDownload(
     @Volatile private var bytes = 0L
     @Volatile private var total = -1L
 
-    fun start(url: String, file: File) {
+    fun start(url: String, file: File, wifi: Network? = null) {
         cancel()
         target = file
         bytes = 0
         total = -1
+        // 使用 Wi-Fi 自己的 DNS 和 socket，断开后连接失败，不会切到移动数据继续下载。
+        val client = wifi?.let { network ->
+            http.newBuilder().socketFactory(network.socketFactory)
+                .dns(object : Dns {
+                    override fun lookup(hostname: String): List<InetAddress> = network.getAllByName(hostname).toList()
+                })
+                .connectionPool(ConnectionPool())
+                .build()
+        } ?: http
         job = scope.launch {
-            runCatching { fetch(http, url, file, onCall = { call = it }) { done, size -> bytes = done; total = size } }
+            runCatching { fetch(client, url, file, onCall = { call = it }) { done, size -> bytes = done; total = size } }
                 .onFailure { if (it is CancellationException) throw it }
         }
     }

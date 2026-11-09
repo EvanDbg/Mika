@@ -83,17 +83,28 @@ import com.wangzan101.mika.ui.theme.MikaType
 @Composable
 fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
     val context = LocalContext.current
+    var filePickerId by rememberSaveable { mutableStateOf<String?>(null) }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        browser.answerFileChooser(uri?.let { listOf(it) })
+        val id = filePickerId
+        filePickerId = null
+        if (id != null) browser.answerFileChooser(id, uri?.let { listOf(it) })
     }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        browser.answerFileChooser(uris)
+        val id = filePickerId
+        filePickerId = null
+        if (id != null) browser.answerFileChooser(id, uris)
     }
+    var mediaPermissionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var locationPermissionId by rememberSaveable { mutableStateOf<String?>(null) }
     val askMediaPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        browser.answerPagePermission(granted.isNotEmpty() && granted.values.all { it })
+        val id = mediaPermissionId
+        mediaPermissionId = null
+        if (id != null) browser.answerPagePermission(id, granted.isNotEmpty() && granted.values.all { it })
     }
     val askLocationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        browser.answerGeolocation(granted.isNotEmpty() && granted.values.any { it })
+        val id = locationPermissionId
+        locationPermissionId = null
+        if (id != null) browser.answerGeolocation(id, granted.values.any { it })
     }
     val page by browser.page.collectAsState()
     val dialog by browser.dialog.collectAsState()
@@ -129,13 +140,15 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
     // 换了一页(还没在这一页上问过时)重新找接着的对话;关了网页回到什么都没有
     val pageUrl = page?.url
     LaunchedEffect(pageUrl) { chat.onPage(pageUrl) }
-    // 网页要选文件:弹系统选择器;转屏后同一个请求不重复弹(request.started)
-    LaunchedEffect(filePick) {
+    // 系统选择器返回前先保留原请求 ID，新的请求等原选择器结束再弹。
+    LaunchedEffect(filePick, filePickerId) {
         val request = filePick ?: return@LaunchedEffect
-        if (request.started) return@LaunchedEffect
+        if (filePickerId != null || request.started || browser.filePick.value?.id != request.id) return@LaunchedEffect
         request.started = true
-        val types = chooserMimeTypes(request.params)
-        if (request.params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) pickFiles.launch(types) else pickFile.launch(types)
+        filePickerId = request.id
+        val params = request.params
+        val types = chooserMimeTypes(params)
+        if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) pickFiles.launch(types) else pickFile.launch(types)
     }
 
     // 这一处浏览器页:进来时登记,回到前台时把网页视图要过来(界面有两个实例时挂在看得见的那个上),
@@ -289,29 +302,38 @@ fun BrowserScreen(browser: UserBrowser, onBack: () -> Unit) {
     if (downloadsOpen) {
         DownloadsSheet(browser.downloads, onDismiss = { downloadsOpen = false })
     }
-    pagePermission?.let { req ->
-        val site = page?.url?.let { WebUrlPolicy.host(it) }?.let { face(it).name } ?: tr(R.string.drawer_browser)
+    val askingAndroid = mediaPermissionId != null || locationPermissionId != null
+    pagePermission?.takeUnless { askingAndroid }?.let { req ->
         WebPermissionDialog(
-            site = site,
-            what = mediaPermissionText(req.request.resources),
-            onAllow = {
-                val missing = mediaAndroidPermissions(req.request.resources)
+            site = req.origin,
+            what = mediaPermissionText(req.value.resources),
+            onAllow = allow@{
+                if (mediaPermissionId != null || locationPermissionId != null) return@allow
+                if (browser.pagePermission.value?.id != req.id) return@allow
+                val missing = mediaAndroidPermissions(req.value.resources)
                     .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
-                if (missing.isEmpty()) browser.answerPagePermission(true) else askMediaPermissions.launch(missing.toTypedArray())
+                if (missing.isEmpty()) browser.answerPagePermission(req.id, true) else {
+                    mediaPermissionId = req.id
+                    askMediaPermissions.launch(missing.toTypedArray())
+                }
             },
-            onDeny = { browser.answerPagePermission(false) },
+            onDeny = { browser.answerPagePermission(req.id, false) },
         )
     }
-    geoPermission?.let { req ->
-        val site = req.origin?.let { WebUrlPolicy.host(it) }?.let { face(it).name } ?: tr(R.string.drawer_browser)
+    geoPermission?.takeUnless { askingAndroid || pagePermission != null }?.let { req ->
         WebPermissionDialog(
-            site = site,
+            site = req.origin,
             what = tr(R.string.browser_permission_location),
-            onAllow = {
+            onAllow = allow@{
+                if (mediaPermissionId != null || locationPermissionId != null) return@allow
+                if (browser.geoPermission.value?.id != req.id) return@allow
                 val missing = LOCATION_PERMISSIONS.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
-                if (missing.isEmpty()) browser.answerGeolocation(true) else askLocationPermission.launch(missing.toTypedArray())
+                if (missing.isEmpty()) browser.answerGeolocation(req.id, true) else {
+                    locationPermissionId = req.id
+                    askLocationPermission.launch(missing.toTypedArray())
+                }
             },
-            onDeny = { browser.answerGeolocation(false) },
+            onDeny = { browser.answerGeolocation(req.id, false) },
         )
     }
     if (menuOpen) {

@@ -509,8 +509,9 @@ class TaskRun(
         val traceTicket = traces.ticket()
         var record: RunHandle? = null
         var runStore: RunStore? = null
-        // 这次运行里经计量的模型请求(含旁路调用),收尾时记进运行记录
-        val tally = RunUsageTally()
+        // 整个运行共用一份已报告 Token 预算；子任务沿用协程上下文里的这份，不另开额度。
+        val tokenBudget = if (conditionCheck) null else FeatureFlags.get(service).taskTokenBudget()
+        val tally = RunUsageTally(tokenBudget)
         // 第一次打开网址时才建;没建过就不用关
         var webStack: WebStack? = null
         // 当前界面(手机/网页)要看分发器;画中画的画面来源随它切换
@@ -781,7 +782,7 @@ class TaskRun(
             val runSpec = RunSpec(RunId(key), goal, conversationId,
                 priorTurns,
                 provenance, if (conditionCheck) setOf("web", "sandbox") else null, readOnly = conditionCheck,
-                stepBudget = stepLimit)
+                stepBudget = stepLimit, tokenBudget = tokenBudget)
             // 外部 MCP server 只在主任务接;子任务/条件检查/评测不接,避免绕过父任务审批、影响评测可复现
             if (!conditionCheck) {
                 // 连上的当场归 resources:收尾(含取消、失败、连到一半被停)关作用域时一起关,stdio server 的进程和沙箱租约跟着放掉

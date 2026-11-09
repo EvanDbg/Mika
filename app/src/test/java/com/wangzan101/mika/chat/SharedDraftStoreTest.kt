@@ -93,6 +93,33 @@ class SharedDraftStoreTest {
         assertEquals(draft, store.read())
     }
 
+    @Test fun pendingDraftAndImportingImageAreProtectedAcrossCleanupAndOverwrite() {
+        val dir = tmp.newFolder()
+        val store = SharedDraftStore(dir)
+        val first = image(store, "first.jpg", byteArrayOf(1))
+        val pendingImg = image(store, "pending.jpg", byteArrayOf(2))
+
+        assertTrue(store.save(SharedDraft("c1", "first", first)))
+        assertTrue(store.savePending(SharedDraft("c1", "pending", pendingImg)))
+        store.cleanup()
+        assertTrue(store.imageFile("first.jpg")!!.exists())
+        assertTrue(store.imageFile("pending.jpg")!!.exists())
+        assertEquals(SharedDraft("c1", "pending", pendingImg), SharedDraftStore(dir).readPending())
+
+        // 正在导入中的图片在同会话覆盖保存时不会被提前删除,导入结束后才释放删除。
+        val nextImg = image(store, "next.jpg", byteArrayOf(3))
+        store.setImporting("first.jpg", true)
+        assertTrue(store.save(SharedDraft("c1", "next", nextImg)))
+        assertNull(store.readPending())
+        assertFalse(store.imageFile("pending.jpg")!!.exists())
+        assertTrue(store.imageFile("first.jpg")!!.exists())
+        assertTrue(store.imageFile("next.jpg")!!.exists())
+
+        store.setImporting("first.jpg", false)
+        assertFalse(store.imageFile("first.jpg")!!.exists())
+        assertTrue(store.imageFile("next.jpg")!!.exists())
+    }
+
     @Test fun boundedCopyRejectsSizeAndLowStorageAndRemovesTemporaryFile() = runTest {
         val dir = tmp.newFolder()
         val tmpFile = File(dir, "image.tmp")

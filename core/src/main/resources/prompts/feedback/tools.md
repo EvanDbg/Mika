@@ -135,6 +135,9 @@ The app was started but did not come to the foreground within a few seconds, so 
 ## failure.no_focus
 No text field is focused. Tap the field first, or pass its ref+snapshotId.
 
+## failure.editor_not_visible
+The focused editor is hidden or has no usable on-screen bounds. Read the screen again before typing or clearing. If reopening the editor does not make it visible, call hand_to_user.
+
 ## failure.point_not_typed
 The point you gave did not take the text.
 

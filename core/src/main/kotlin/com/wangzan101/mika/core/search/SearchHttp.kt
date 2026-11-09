@@ -37,8 +37,20 @@ internal object SearchHttp {
             client.newCall(r).awaitBody { response ->
                 special(response)?.let { return@awaitBody it }
                 failure(response)?.let { return@awaitBody it }
-                val body = response.body?.string().orEmpty()
-                if (body.length > MAX_RESPONSE_CHARS) return@awaitBody WebSearchResult.Failure("invalid_response", "The search service response is too large.")
+                val body = response.body?.charStream()?.use { reader ->
+                    val text = StringBuilder()
+                    val buffer = CharArray(8192)
+                    while (true) {
+                        // 多读一个字符判定超限，避免等待超大正文全部下载完成。
+                        val count = reader.read(buffer, 0, minOf(buffer.size, MAX_RESPONSE_CHARS - text.length + 1))
+                        if (count == -1) break
+                        if (text.length + count > MAX_RESPONSE_CHARS) {
+                            return@awaitBody WebSearchResult.Failure("invalid_response", "The search service response is too large.")
+                        }
+                        text.append(buffer, 0, count)
+                    }
+                    text.toString()
+                }.orEmpty()
                 val root = try { Json.parseToJsonElement(body) as? JsonObject } catch (e: IllegalArgumentException) { null }
                     ?: return@awaitBody WebSearchResult.Failure("invalid_response", "The search service did not return a JSON object.")
                 parse(root)

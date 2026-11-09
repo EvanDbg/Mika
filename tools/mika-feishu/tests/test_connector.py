@@ -1,11 +1,14 @@
 import json
 import os
+import socket
+import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from mika_feishu.api import ApiError, MikaApi
 from mika_feishu.bridge import Bridge, normalize
@@ -68,6 +71,19 @@ class BridgeTests(unittest.TestCase):
         self.assertFalse(restarted.receive(event()))
         self.assertEqual(len(self.api.writes), 1)
 
+    def test_restart_discards_queued_events_from_revoked_users(self):
+        claimed = event("claimed")
+        claimed["event"]["message"]["chat_id"] = "oc_other"
+        self.assertTrue(self.bridge.receive(claimed))
+        self.store.pop()
+        self.assertTrue(self.bridge.receive(event("pending")))
+        restarted = Bridge(self.api, self.store, lambda *args: self.sent.append(args), ["ou_new"])
+        restarted.recover()
+        self.assertTrue(restarted.work_once())
+        self.assertEqual(self.api.writes, [])
+        self.assertEqual(self.sent, [])
+        self.assertEqual(self.store.execute("SELECT id FROM inbox WHERE state != 'done'"), [])
+
     def test_lost_post_response_blocks_future_tasks(self):
         self.api.error = ApiError("timeout", uncertain=True)
         self.deliver()
@@ -94,8 +110,56 @@ class BridgeTests(unittest.TestCase):
         self.deliver("/answer 同意", "om_2")
         self.assertEqual(len(self.api.writes), 1)
         self.api.status.update(status="waiting_for_answer", question="哪个城市？")
+        self.bridge.poll_once()
         self.deliver("上海", "om_3")
         self.assertEqual(self.api.writes[-1], ("answer", "上海"))
+
+    def test_poll_does_not_send_the_replaced_tasks_question(self):
+        peer = "oc_chat:ou_owner"
+        self.store.update(peer, task_id="task_old")
+
+        def replace_during_poll(task_id):
+            self.assertEqual(task_id, "task_old")
+            self.store.update(peer, task_id="task_1")
+            return {"task_id": "task_old", "status": "waiting_for_answer", "question": "Old question?"}
+
+        with patch.object(self.api, "task", side_effect=replace_during_poll):
+            self.bridge.poll_once()
+        self.assertEqual(self.sent, [])
+        self.api.status.update(status="waiting_for_answer", question="New question?")
+        self.deliver("old answer")
+        self.assertEqual(self.api.writes, [])
+
+    def test_reply_must_match_current_question_message(self):
+        peer = "oc_chat:ou_owner"
+        self.store.update(peer, task_id="task_old")
+        self.api.status.update(task_id="task_old", status="waiting_for_answer", question="Old question?")
+
+        def send(*message):
+            self.sent.append(message)
+            return ["bot_" + str(len(self.sent))]
+
+        self.bridge.send = send
+        self.bridge.poll_once()
+        self.store.update(peer, task_id="task_1", notice="")
+        self.api.status.update(task_id="task_1", question="New question?")
+        self.bridge.poll_once()
+
+        for mid, parent, answer in (("old", "bot_1", "old answer"), ("new", "bot_2", "new answer")):
+            data = event(mid, answer)
+            data["event"]["message"]["parent_id"] = parent
+            self.assertTrue(self.bridge.receive(data))
+            self.bridge.work_once()
+        self.assertEqual(self.api.writes, [("answer", "new answer")])
+
+    def test_status_can_show_the_current_question_before_an_explicit_answer(self):
+        self.deliver()
+        self.api.status.update(status="waiting_for_answer", question="Which city?")
+        self.deliver("/answer Shanghai", "om_2")
+        self.assertEqual(len(self.api.writes), 1)
+        self.deliver("/status", "om_3")
+        self.deliver("/answer Shanghai", "om_4")
+        self.assertEqual(self.api.writes[-1], ("answer", "Shanghai"))
 
     def test_terminal_notifications_sent_once_and_resume_same_conversation(self):
         self.deliver()
@@ -145,8 +209,12 @@ class BridgeTests(unittest.TestCase):
     def test_real_sdk_event_serialization(self):
         import lark_oapi as lark
         from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
-        payload = json.loads(lark.JSON.marshal(P2ImMessageReceiveV1(event())))
-        self.assertEqual(normalize(payload)["user"], "ou_owner")
+        data = event()
+        data["event"]["message"]["parent_id"] = "om_current_question"
+        payload = json.loads(lark.JSON.marshal(P2ImMessageReceiveV1(data)))
+        normalized = normalize(payload)
+        self.assertEqual(normalized["user"], "ou_owner")
+        self.assertEqual(normalized["reply_to"], "om_current_question")
 
     def test_private_config_permissions_and_secret_roundtrip(self):
         from mika_feishu.config import load_config, save_config
@@ -164,12 +232,14 @@ class ContractTests(unittest.TestCase):
     """Wire-level contract derived from official v0.1.31 RemoteTaskApi/RemoteStatus."""
     def setUp(self):
         self.calls, self.version, self.caps, self.mode = [], 1, ["tasks", "task_steer"], "ok"
+        self.hosts = []
         parent = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
 
             def handle_request(self):
+                parent.hosts.append(self.headers.get("Host"))
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                 parent.calls.append((self.command, self.path, body, self.headers.get("Authorization")))
                 if self.path == "/api/v1":
@@ -229,6 +299,52 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ApiError):
             self.api.check()
         self.assertEqual(len(self.calls), 1)
+
+    def test_request_connects_to_the_address_it_validated(self):
+        host = "phone.example.test"
+        port = self.server.server_port
+        resolve, connect = socket.getaddrinfo, socket.socket.connect
+        answers = iter(("127.0.0.1", "127.0.0.1", "203.0.113.9"))
+        attempted = []
+
+        def changing_dns(name, port, *args, **kwargs):
+            return resolve(next(answers) if name == host else name, port, *args, **kwargs)
+
+        def observe_connection(sock, address):
+            attempted.append(address[0])
+            # Route even an incorrect address to the local fixture; never connect to it.
+            return connect(sock, ("127.0.0.1", port))
+
+        with patch.object(socket, "getaddrinfo", changing_dns), patch.object(socket.socket, "connect", observe_connection):
+            MikaApi(f"http://{host}:{port}", "test-token").check()
+        self.assertEqual(attempted, ["127.0.0.1"])
+        self.assertEqual(self.calls[0][3], "Bearer test-token")
+        self.assertEqual(self.hosts, [f"{host}:{port}"])
+
+    def test_public_address_after_setup_is_rejected_before_connecting(self):
+        port = self.server.server_port
+        public = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.9", port))]
+        with patch.object(socket, "getaddrinfo", return_value=public), patch.object(socket.socket, "connect") as connect:
+            with self.assertRaises(ApiError) as error:
+                self.api.request("POST", "/tasks", {"goal": "test"})
+        connect.assert_not_called()
+        self.assertFalse(error.exception.uncertain)
+
+    def test_tls_keeps_original_hostname_after_address_validation(self):
+        host = "phone.example.test"
+        port = self.server.server_port
+        resolve = socket.getaddrinfo
+        handshakes = []
+
+        def wrap(context, sock, *, server_hostname):
+            handshakes.append((context.check_hostname, context.verify_mode, server_hostname))
+            return sock  # The local fixture serves HTTP; verify the TLS arguments only.
+
+        with patch.object(socket, "getaddrinfo", side_effect=lambda name, port, **kw: resolve("127.0.0.1", port, **kw)):
+            with patch.object(ssl.SSLContext, "wrap_socket", wrap):
+                MikaApi(f"https://{host}:{port}", "test-token").check()
+        self.assertEqual(handshakes, [(True, ssl.CERT_REQUIRED, host)])
+        self.assertEqual(self.hosts, [f"{host}:{port}"])
 
     def test_additive_fields_tolerated(self):
         info = self.api.check()

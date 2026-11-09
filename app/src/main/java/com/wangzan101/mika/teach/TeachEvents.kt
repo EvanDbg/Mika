@@ -21,16 +21,16 @@ object TeachEvents {
             null
         }
         return try {
-            val password = source?.isPassword == true
-            val raw = event.text?.joinToString(" ")?.take(200)?.takeIf { it.isNotBlank() }
+            val password = event.isPassword || source?.isPassword == true
+            val raw = if (password) null else event.text?.joinToString(" ")?.take(200)?.takeIf { it.isNotBlank() }
             TeachObservation(
                 atMs = event.eventTime,
                 kind = kind,
                 packageName = event.packageName?.toString(),
-                className = source?.className?.toString() ?: event.className?.toString(),
+                className = if (password) null else (source?.className ?: event.className)?.toString(),
                 title = if (kind == TeachEventKind.Window) raw else null,
                 text = raw,
-                description = source?.contentDescription?.toString() ?: event.contentDescription?.toString(),
+                description = if (password) null else (source?.contentDescription ?: event.contentDescription)?.toString(),
                 viewId = if (password) null else source?.viewIdResourceName,
                 password = password,
                 displayId = displayId,

@@ -58,16 +58,16 @@ Send a simple read-only task and verify the phone and returned result. Keep the 
 
 | Message | Behavior |
 | --- | --- |
-| Plain text | Start a task, or answer the currently open question. Never create another task while one is active. |
+| Plain text | Start a task or answer the current question shown in Feishu. An active task keeps the connector from starting another one. |
 | `/status` | Read the current progress, question or result. |
-| `/answer TEXT` | Answer a remotely answerable question. |
+| `/answer TEXT` | Answer the current question shown in Feishu. Use `/status` first if you haven't seen it. |
 | `/steer TEXT` | Add instructions to a running task if the phone advertises `task_steer`. |
 | `/cancel` | Request cancellation. The final phone status, not the acknowledgement, confirms it. |
 | `/new` | Start a fresh conversation after the current task ends. |
 | `/reset checked` | After checking the phone, clear uncertain local tracking; never cancels phone tasks. |
 | `/help` | Show commands. |
 
-Questions, pauses, phone takeovers and final results are reported automatically; ordinary progress is available through `/status`. Payment confirmations, logins, verification codes and manual takeover remain on the phone. No remote approval endpoint is provided. A completed answer is not presented as independently verified unless the phone explicitly reports `verified: true`.
+Questions, pauses, phone takeovers and final results are reported automatically. Use `/status` to see ordinary progress. When you quote a message in an answer, quote the current question. Payment confirmations, logins, verification codes and manual takeover remain on the phone. The connector reports a result as verified when the phone explicitly reports `verified: true`.
 
 Only allowed users' private text messages are accepted. Group messages, attachments, bot messages and messages over five minutes old are ignored. Saved but unprocessed messages also expire after five minutes. This first version does not support group chats, media or streaming cards.
 

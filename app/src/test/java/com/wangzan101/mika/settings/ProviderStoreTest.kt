@@ -39,7 +39,9 @@ class ProviderStoreTest {
 
     private val setups = mutableListOf<ClientSetup>()
 
-    private fun store() = ProviderStore(tmp.root, AesGcmKeyCipher { key }, userAgent = "Mika/1.2.3") { cfg, apiKey, endpoint, setup ->
+    private fun store(dailyUsage: (String) -> Long = { 0L }) = ProviderStore(
+        tmp.root, AesGcmKeyCipher { key }, userAgent = "Mika/1.2.3", dailyUsage = dailyUsage,
+    ) { cfg, apiKey, endpoint, setup ->
         built += cfg to apiKey
         setups += setup
         endpoints += endpoint
@@ -957,6 +959,71 @@ class ProviderStoreTest {
             seen.map { it.first },
         )
         assertEquals(Usage(3, 2), seen.first().second)
+    }
+
+    @Test fun dailyTokenBudgetPersistsClearsAndRejectsInvalidValues() {
+        val s = store()
+        val p = connected(s)
+        assertNull(s.provider(p.id)!!.dailyTokenBudget)
+        assertTrue(s.setDailyTokenBudget(p.id, 10_000))
+        assertEquals(10_000L, store().provider(p.id)!!.dailyTokenBudget)
+        for (invalid in listOf(0L, 9_999L, 100_000_001L)) {
+            assertFalse(s.setDailyTokenBudget(p.id, invalid))
+            assertEquals(10_000L, s.provider(p.id)!!.dailyTokenBudget)
+        }
+        assertTrue(s.setDailyTokenBudget(p.id, null))
+        assertNull(store().provider(p.id)!!.dailyTokenBudget)
+        assertFalse(s.setDailyTokenBudget("missing", 10_000))
+    }
+
+    @Test fun malformedSavedDailyBudgetLoadsAsUnlimited() {
+        val s = store()
+        val p = connected(s)
+        assertTrue(s.setDailyTokenBudget(p.id, 10_000))
+        val file = File(tmp.root, "providers.json")
+        file.writeText(file.readText().replace("\"dailyTokenBudget\":10000", "\"dailyTokenBudget\":1"))
+        assertNull(store().provider(p.id)!!.dailyTokenBudget)
+    }
+
+    @Test fun failedDailyBudgetSaveLeavesTheActiveAndPersistedValuesAlone() {
+        val s = store()
+        val p = connected(s)
+        assertTrue(s.setDailyTokenBudget(p.id, 10_000))
+        val blocked = File(tmp.root, "providers.json.tmp")
+        assertTrue(blocked.mkdir())
+        assertFalse(s.setDailyTokenBudget(p.id, 20_000))
+        assertEquals(10_000L, s.provider(p.id)!!.dailyTokenBudget)
+        assertTrue(blocked.delete())
+        assertEquals(10_000L, store().provider(p.id)!!.dailyTokenBudget)
+    }
+
+    @Test fun dailyBudgetRejectsOnlyItsOwnProviderWithoutAffectingOtherCalls() = runTest {
+        val used = mutableMapOf<String, Long>()
+        val seen = mutableListOf<UsageSource>()
+        val s = ProviderStore(
+            tmp.root, AesGcmKeyCipher { key }, dailyUsage = { used[it] ?: 0 },
+            usage = { source, _ -> seen += source },
+        ) { cfg, _, _, _ -> FakeModel(cfg.capabilities) }
+        val limited = connected(s, name = "Limited")
+        val available = connected(s, name = "Available")
+        s.use(ModelRole.Main, limited.id, "m1", none)
+        s.use(ModelRole.Light, available.id, "m1", none)
+        assertTrue(s.setDailyTokenBudget(limited.id, 10_000))
+        assertTrue(s.setDailyTokenBudget(available.id, 10_000))
+        used[limited.id] = 10_000
+        used[available.id] = 9_999
+
+        try {
+            s.modelFor(ModelRole.Main)!!.complete("s", emptyList(), emptyList())
+            fail("达到每日预算的服务商应停止下一次请求")
+        } catch (e: ModelError.DailyBudgetExceeded) {
+            assertEquals("Limited", e.providerName)
+            assertEquals(10_000L, e.limit)
+            assertEquals(10_000L, e.used)
+        }
+        assertTrue("拒绝时不记一笔不存在的调用", seen.isEmpty())
+        s.modelFor(ModelRole.Light)!!.complete("s", emptyList(), emptyList())
+        assertEquals(listOf(available.id), seen.map { it.providerId })
     }
 
     private class FakeModel(override val capabilities: Capabilities) : ChatModel {

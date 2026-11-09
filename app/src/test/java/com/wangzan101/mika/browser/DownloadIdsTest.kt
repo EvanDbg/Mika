@@ -28,10 +28,21 @@ class DownloadIdsTest {
     }
 
     @Test
-    fun retainDropsIdsTheSystemNoLongerHas() {
+    fun refreshDropsIdsTheSystemNoLongerHas() {
         val s = store()
         s.add(1); s.add(2); s.add(3)
-        s.retain(setOf(1L, 3L))
+        s.pruneMissing(s.all(), setOf(1L, 3L))
         assertEquals(listOf(1L, 3L), s.all().toList())
+    }
+
+    @Test
+    fun refreshKeepsDownloadsAddedAfterTheQueryStarted() {
+        val s = store()
+        s.add(1)
+        s.add(2)
+        val queried = s.all()
+        s.add(3)
+        s.pruneMissing(queried, setOf(1L))
+        assertEquals(listOf(1L, 3L), store().all().toList())
     }
 }

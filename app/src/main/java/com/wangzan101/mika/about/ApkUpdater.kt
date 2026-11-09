@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.net.Network
 import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
@@ -38,6 +39,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
     /** 这一份是 Mika 自己经代理下的(不是系统下载服务)。 */
     private val viaApp: Boolean get() = prefs.getBoolean("viaApp", false)
 
+    @Synchronized
     fun state(release: ReleaseInfo): ApkDownloadState =
         if (prefs.getString("url", null) != release.apkUrl) ApkDownloadState() else recorded()
 
@@ -60,7 +62,9 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
         return ApkDownloadState(DownloadPhase.Failed)
     }
 
-    fun download(release: ReleaseInfo) {
+    @Synchronized
+    /** 自动下载传入当前 Wi-Fi，手动下载沿用系统默认网络。 */
+    fun download(release: ReleaseInfo, wifi: Network? = null) {
         val url = requireNotNull(release.apkUrl)
         ApkIntegrity.requireOfficialUrl(url)
         if (prefs.getString("url", null) == url && state(release).phase in
@@ -74,7 +78,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
         val target = File(folder, "update-${UUID.randomUUID()}.apk")
         if (net.proxyFor(Uri.parse(url).host.orEmpty()) != null) {
             check(prefs.edit().putBoolean("viaApp", true).putString("url", url).putString("file", target.name).commit()) { "could not save download" }
-            proxied.start(url, target)
+            proxied.start(url, target, wifi)
             return
         }
         val request = DownloadManager.Request(Uri.parse(url))
@@ -83,6 +87,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
             // 只在下载中显示通知:完成后的通知一点就会绕过下面的校验直接打开安装包,所以不留。
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationUri(Uri.fromFile(target))
+        if (wifi != null) request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
         val id = manager.enqueue(request)
         if (!prefs.edit().putLong("id", id).putString("url", url).putString("file", target.name).commit()) {
             manager.remove(id)
@@ -90,6 +95,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
         }
     }
 
+    @Synchronized
     fun cancel() {
         if (viaApp) proxied.cancel()
         val id = prefs.getLong("id", -1)
@@ -100,6 +106,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
     }
 
     /** 已经装上(或装了更新的版本)后,下好的安装包没用了:启动时清掉。下载中、暂停、失败的留给关于页处理。 */
+    @Synchronized
     fun dropInstalled() {
         val target = file ?: return
         if (recorded().phase != DownloadPhase.Ready) return
@@ -112,6 +119,7 @@ class ApkUpdater(private val context: Context, private val net: NetProxy = NetPr
      * 只接受本应用、更高版本、同一签名的完整附件;没通过就删掉文件并抛 [ApkRejected]。
      * 系统安装器之后还会再验签名并要求用户确认。
      */
+    @Synchronized
     fun installIntent(release: ReleaseInfo): Intent {
         check(state(release).phase == DownloadPhase.Ready)
         ApkIntegrity.requireOfficialUrl(requireNotNull(release.apkUrl))

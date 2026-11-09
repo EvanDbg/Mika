@@ -501,6 +501,8 @@ fun ChatWithDrawer(
     /** 从侧栏进去的页面刚退回来:当场打开侧栏,回到进去之前的样子。 */
     reopen: Boolean = false,
     onReopened: () -> Unit = {},
+    /** 外部跳回对话页时变化:若之前因返回键留在展开的侧栏,当场收起侧栏。 */
+    resetKey: Int = 0,
     content: @Composable (openDrawer: () -> Unit) -> Unit,
 ) {
     val drawer = rememberDrawerState(DrawerValue.Closed)
@@ -559,6 +561,17 @@ fun ChatWithDrawer(
     var confirming by remember { mutableStateOf<Pair<DrawerConversation, DeleteImpact>?>(null) }
     /** 「完全退出」的确认弹窗开着。 */
     var confirmingQuit by remember { mutableStateOf(false) }
+    var lastReset by remember { mutableIntStateOf(resetKey) }
+    LaunchedEffect(resetKey) {
+        if (resetKey != lastReset) {
+            lastReset = resetKey
+            acting = null
+            renaming = null
+            confirming = null
+            confirmingQuit = false
+            drawer.snapTo(DrawerValue.Closed)
+        }
+    }
     val menuOpen = acting != null
     Box(Modifier.fillMaxSize()) {
         ModalNavigationDrawer(

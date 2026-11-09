@@ -81,8 +81,10 @@ class WebTab(
         fun onFileChooser(tab: WebTab, callback: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean = false
         /** 用户自己看的标签要摄像头、麦克风等:由界面问用户,[request] 由界面同意或拒绝。返回 true 表示接下。 */
         fun onPermissionRequest(tab: WebTab, request: PermissionRequest): Boolean = false
+        fun onPermissionRequestCanceled(tab: WebTab, request: PermissionRequest) {}
         /** 用户自己看的标签要定位:由界面问用户,[callback] 由界面回话。返回 true 表示接下。 */
         fun onGeolocationRequest(tab: WebTab, origin: String?, callback: GeolocationPermissions.Callback): Boolean = false
+        fun onGeolocationPermissionsHidePrompt(tab: WebTab) {}
         /** 网页要全屏播放视频:由界面把 [view] 盖到整屏上,并把回调留着,退出时交给调用方。返回 true 表示接下。 */
         fun onFullscreen(tab: WebTab, view: View, callback: WebChromeClient.CustomViewCallback): Boolean = false
         /** 网页要退出全屏。 */
@@ -330,9 +332,17 @@ class WebTab(
                 request.deny()
             }
 
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                listener?.onPermissionRequestCanceled(this@WebTab, request)
+            }
+
             override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                 if (callback != null && listener?.onGeolocationRequest(this@WebTab, origin, callback) == true) return
                 callback?.invoke(origin, false, false)
+            }
+
+            override fun onGeolocationPermissionsHidePrompt() {
+                listener?.onGeolocationPermissionsHidePrompt(this@WebTab)
             }
 
             // 文件选择框:agent 先用 web_upload 事先放好的工作区文件(取走即清);用户自己看的标签交界面弹系统选择器

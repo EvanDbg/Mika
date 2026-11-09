@@ -24,12 +24,10 @@ object ChatCopy {
     data class Example(val kind: ExampleKind, val text: String)
 
     val examples get() = listOf(
+        Example(ExampleKind.Web, tr(R.string.chat_example_github_star)),
         Example(ExampleKind.App, tr(R.string.chat_example_follow)),
         Example(ExampleKind.App, tr(R.string.chat_example_group_summary)),
-        Example(ExampleKind.Web, tr(R.string.chat_example_jobs)),
-        Example(ExampleKind.App, tr(R.string.chat_example_multi_step)),
         Example(ExampleKind.Device, tr(R.string.chat_example_alarms)),
-        Example(ExampleKind.App, tr(R.string.chat_example_ai_apps)),
     )
 
     /** 对话页顶栏的标题:固定是 App 名;副标题说此刻在做什么。 */

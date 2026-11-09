@@ -9,6 +9,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /** 系统分享图片的私有副本;[fileName] 只由本 App 生成,不保留外部路径。 */
 data class SharedDraftImage(val fileName: String, val name: String, val size: Long)
@@ -22,37 +24,73 @@ data class SharedDraft(val conversationId: String, val text: String, val image: 
  */
 class SharedDraftStore(private val dir: File) {
     private val metadata: File get() = File(dir, METADATA)
+    private val importingImages = mutableSetOf<String>()
 
     @Synchronized
     fun read(): SharedDraft? = readAll().lastOrNull()
 
     @Synchronized
-    fun readAll(): List<SharedDraft> = readValid().also { valid ->
-        if (valid.isEmpty() && metadata.exists()) metadata.delete()
+    fun readAll(): List<SharedDraft> {
+        val (drafts, pending) = readState()
+        if (drafts.isEmpty() && pending == null && metadata.exists()) metadata.delete()
+        return drafts
+    }
+
+    @Synchronized
+    fun readPending(): SharedDraft? = readState().second
+
+    /** 保存待用户确认替换的后台分享草稿;进程在确认弹窗期间被回收重建时可恢复。 */
+    @Synchronized
+    fun savePending(draft: SharedDraft): Boolean {
+        if (!valid(draft)) return false
+        val (oldDrafts, oldPending) = readState()
+        return write(oldDrafts, draft, oldDrafts, oldPending)
+    }
+
+    @Synchronized
+    fun clearPending(deleteImage: Boolean = true) {
+        val (oldDrafts, oldPending) = readState()
+        if (oldPending == null) return
+        write(oldDrafts, null, oldDrafts, if (deleteImage) oldPending else null)
+    }
+
+    /** 标记某张分享图片正在导入工作区:导入期间即使同会话收到新分享也不会提前删掉原图文件。 */
+    @Synchronized
+    fun setImporting(fileName: String?, active: Boolean) {
+        if (fileName.isNullOrEmpty()) return
+        if (active) {
+            importingImages += fileName
+        } else {
+            importingImages -= fileName
+            discard(SharedDraftImage(fileName, "", 0))
+        }
     }
 
     /** 保存前要求图片已经是本目录里的完整普通文件;失败时不改旧草稿。 */
     @Synchronized
     fun save(draft: SharedDraft): Boolean {
         if (!valid(draft)) return false
-        val old = readValid()
+        val (old, oldPending) = readState()
         val next = if (old.any { it.conversationId == draft.conversationId }) {
             old.map { if (it.conversationId == draft.conversationId) draft else it }
         } else old + draft
-        return write(next, old)
+        val nextPending = oldPending?.takeUnless { it.conversationId == draft.conversationId }
+        return write(next, nextPending, old, oldPending)
     }
 
     /** 发送或删除只清理所属对话,其他会话的分享图片继续可用。 */
     @Synchronized
     fun clear(conversationId: String) {
-        val old = readValid()
-        if (old.none { it.conversationId == conversationId }) return
-        write(old.filterNot { it.conversationId == conversationId }, old)
+        val (old, oldPending) = readState()
+        val next = old.filterNot { it.conversationId == conversationId }
+        val nextPending = oldPending?.takeUnless { it.conversationId == conversationId }
+        if (next.size == old.size && nextPending == oldPending) return
+        write(next, nextPending, old, oldPending)
     }
 
     @Synchronized
     fun removeImage(conversationId: String) {
-        val old = readValid().firstOrNull { it.conversationId == conversationId } ?: return
+        val old = readState().first.firstOrNull { it.conversationId == conversationId } ?: return
         if (old.image == null) return
         if (old.text.isBlank()) clear(conversationId) else save(old.copy(image = null))
     }
@@ -60,50 +98,68 @@ class SharedDraftStore(private val dir: File) {
     /** 尚未绑到对话的副本取消时删除;已经保存成功的同一文件不能删。 */
     @Synchronized
     fun discard(image: SharedDraftImage?) {
-        if (image == null || readValid().any { it.image?.fileName == image.fileName }) return
+        if (image == null) return
+        val (drafts, pending) = readState()
+        if (image.fileName in importingImages ||
+            drafts.any { it.image?.fileName == image.fileName } ||
+            pending?.image?.fileName == image.fileName
+        ) return
         imageFile(image.fileName)?.delete()
     }
 
     /** 清掉复制中断的临时文件、没来得及绑到对话的副本和损坏的元数据。 */
     @Synchronized
     fun cleanup() {
-        val images = readAll().mapNotNull { it.image?.fileName }.toSet()
+        val (drafts, pending) = readState()
+        if (drafts.isEmpty() && pending == null && metadata.exists()) metadata.delete()
+        val images = (drafts.mapNotNull { it.image?.fileName } + listOfNotNull(pending?.image?.fileName) + importingImages).toSet()
         dir.listFiles()?.forEach { f ->
             if (f.name == METADATA || f.name in images) return@forEach
             if (f.isFile) f.delete()
         }
     }
 
-    private fun write(drafts: List<SharedDraft>, old: List<SharedDraft>): Boolean {
+    private fun encodeDraft(draft: SharedDraft): JsonObject = buildJsonObject {
+        put("conversation", draft.conversationId)
+        put("text", draft.text)
+        draft.image?.let { image ->
+            put("image", buildJsonObject {
+                put("file", image.fileName)
+                put("name", image.name)
+                put("size", image.size)
+            })
+        }
+    }
+
+    private fun write(
+        drafts: List<SharedDraft>,
+        pending: SharedDraft?,
+        oldDrafts: List<SharedDraft>,
+        oldPending: SharedDraft?,
+    ): Boolean {
         dir.mkdirs()
-        if (drafts.isEmpty()) {
+        if (drafts.isEmpty() && pending == null) {
             if (metadata.exists() && !metadata.delete()) return false
         } else {
             val json = buildJsonObject {
-                put("drafts", JsonArray(drafts.map { draft -> buildJsonObject {
-                    put("conversation", draft.conversationId)
-                    put("text", draft.text)
-                    draft.image?.let { image ->
-                        put("image", buildJsonObject {
-                            put("file", image.fileName)
-                            put("name", image.name)
-                            put("size", image.size)
-                        })
-                    }
-                } }))
+                put("drafts", JsonArray(drafts.map(::encodeDraft)))
+                pending?.let { put("pending", encodeDraft(it)) }
             }.toString()
             val tmp = File(dir, "$METADATA.tmp")
             val written = runCatching {
                 tmp.writeText(json)
-                tmp.renameTo(metadata) && metadata.isFile && metadata.readText() == json
+                Files.move(tmp.toPath(), metadata.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                metadata.isFile && metadata.readText() == json
             }.getOrDefault(false)
             if (!written) {
                 tmp.delete()
                 return false
             }
         }
-        val retained = drafts.mapNotNull { it.image?.fileName }.toSet()
-        old.mapNotNull { it.image?.fileName }.filterNot { it in retained }.forEach { imageFile(it)?.delete() }
+        val retained = (drafts.mapNotNull { it.image?.fileName } + listOfNotNull(pending?.image?.fileName) + importingImages).toSet()
+        (oldDrafts.mapNotNull { it.image?.fileName } + listOfNotNull(oldPending?.image?.fileName))
+            .filterNot { it in retained }
+            .forEach { imageFile(it)?.delete() }
         return true
     }
 
@@ -113,24 +169,30 @@ class SharedDraftStore(private val dir: File) {
         return f.takeIf { runCatching { it.canonicalFile.parentFile == dir.canonicalFile }.getOrDefault(false) }
     }
 
-    private fun readValid(): List<SharedDraft> = runCatching {
-        val root = Json.parseToJsonElement(metadata.readText()) as? JsonObject ?: return emptyList()
+    private fun decodeDraft(o: JsonObject): SharedDraft? {
+        fun string(obj: JsonObject, key: String) = (obj[key] as? JsonPrimitive)?.contentOrNull
+        val image = (o["image"] as? JsonObject)?.let { i ->
+            SharedDraftImage(
+                string(i, "file") ?: return null,
+                string(i, "name") ?: return null,
+                string(i, "size")?.toLongOrNull() ?: return null,
+            )
+        }
+        return SharedDraft(
+            string(o, "conversation") ?: return null,
+            string(o, "text") ?: return null,
+            image,
+        ).takeIf(::valid)
+    }
+
+    private fun readState(): Pair<List<SharedDraft>, SharedDraft?> = runCatching {
+        val root = Json.parseToJsonElement(metadata.readText()) as? JsonObject ?: return emptyList<SharedDraft>() to null
         // 兼容原来只有一份分享草稿的文件。
         val entries = (root["drafts"] as? JsonArray)?.toList() ?: listOf(root)
-        entries.mapNotNull { entry ->
-            val o = entry as? JsonObject ?: return@mapNotNull null
-            fun string(obj: JsonObject, key: String) = (obj[key] as? JsonPrimitive)?.contentOrNull
-            val image = (o["image"] as? JsonObject)?.let { i ->
-                SharedDraftImage(
-                    string(i, "file") ?: return@mapNotNull null,
-                    string(i, "name") ?: return@mapNotNull null,
-                    string(i, "size")?.toLongOrNull() ?: return@mapNotNull null,
-                )
-            }
-            SharedDraft(string(o, "conversation") ?: return@mapNotNull null,
-                string(o, "text") ?: return@mapNotNull null, image).takeIf(::valid)
-        }
-    }.getOrDefault(emptyList())
+        val drafts = entries.mapNotNull { (it as? JsonObject)?.let(::decodeDraft) }
+        val pending = (root["pending"] as? JsonObject)?.let(::decodeDraft)
+        drafts to pending
+    }.getOrDefault(emptyList<SharedDraft>() to null)
 
     private fun valid(draft: SharedDraft): Boolean {
         if (!draft.conversationId.matches(ID) || draft.text.length > MAX_TEXT_CHARS) return false

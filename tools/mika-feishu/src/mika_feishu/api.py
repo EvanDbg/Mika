@@ -5,9 +5,7 @@ import json
 import re
 import socket
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 
 
 class ApiError(Exception):
@@ -16,19 +14,9 @@ class ApiError(Exception):
         self.code, self.uncertain, self.status = code, uncertain, status
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def validate_url(url):
-    p = urllib.parse.urlsplit(url)
-    if (p.scheme not in {"http", "https"} or not p.hostname or p.username or
-            p.password or p.query or p.fragment or p.path.rstrip("/") not in {"", "/api/v1"}):
-        raise ValueError("Use http://PHONE:PORT without credentials, query parameters or other paths")
+def private_addresses(host, port):
     try:
-        port = p.port or (443 if p.scheme == "https" else 80)
-        addresses = socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except (OSError, ValueError) as exc:
         raise ValueError("Cannot resolve the phone address; check the LAN or Tailscale address") from exc
     for entry in addresses:
@@ -39,28 +27,69 @@ def validate_url(url):
                     "100.64.0.0/10", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10")
         if not any(a in ipaddress.ip_network(n) for n in networks):
             raise ValueError("Only loopback, LAN and private VPN/Tailscale addresses are allowed")
+    return addresses
+
+
+def validate_url(url):
+    p = urllib.parse.urlsplit(url)
+    if (p.scheme not in {"http", "https"} or not p.hostname or p.username or
+            p.password or p.query or p.fragment or p.path.rstrip("/") not in {"", "/api/v1"}):
+        raise ValueError("Use http://PHONE:PORT without credentials, query parameters or other paths")
+    private_addresses(p.hostname, p.port or (443 if p.scheme == "https" else 80))
     return urllib.parse.urlunsplit((p.scheme, p.netloc, "/api/v1", "", ""))
+
+
+class PrivateHTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        try:
+            addresses = private_addresses(self.host, self.port)
+        except ValueError:
+            raise ApiError("invalid_private_address") from None
+        error = OSError("No phone address available")
+        for family, kind, protocol, _, address in addresses:
+            sock = None
+            try:
+                sock = socket.socket(family, kind, protocol)
+                sock.settimeout(self.timeout)
+                sock.connect(address)
+                self.sock = sock
+                return
+            except OSError as exc:
+                error = exc
+                if sock is not None:
+                    sock.close()
+        raise error
+
+
+class PrivateHTTPSConnection(http.client.HTTPSConnection, PrivateHTTPConnection):
+    # HTTPSConnection wraps the checked socket, with the original hostname for SNI and verification.
+    pass
 
 
 class MikaApi:
     def __init__(self, url, token, timeout=12):
         self.base = validate_url(url)
+        self.target = urllib.parse.urlsplit(self.base)
         self.token = token
         self.timeout = timeout
         self.info = None
         self.checked_at = 0
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
     def request(self, method, path="", payload=None):
-        # Resolve again on each request. Private service URLs must remain private.
-        validate_url(self.base)
         data = None if payload is None else json.dumps(payload).encode()
-        req = urllib.request.Request(self.base + path, data=data, method=method, headers={
+        headers = {
             "Authorization": "Bearer " + self.token, "Accept": "application/json",
-            "Content-Type": "application/json", "User-Agent": "mika-feishu-connector/0.1"})
+            "Content-Type": "application/json", "User-Agent": "mika-feishu-connector/0.1"}
         writing = method == "POST" and not path.endswith("/wait")
+        connect = PrivateHTTPSConnection if self.target.scheme == "https" else PrivateHTTPConnection
+        conn = connect(self.target.hostname, self.target.port, timeout=self.timeout)
         try:
-            with self.opener.open(req, timeout=self.timeout) as response:
+            conn.request(method, self.target.path + path, body=data, headers=headers)
+            with conn.getresponse() as response:
+                if not 200 <= response.status < 300:
+                    # Reject redirects, and treat 5xx after a write as potentially executed.
+                    raise ApiError("http_" + str(response.status), uncertain=writing and response.status >= 500,
+                                   status=response.status)
                 raw = response.read(2_000_001)
                 if len(raw) > 2_000_000:
                     raise ApiError("response_too_large", uncertain=writing)
@@ -68,12 +97,10 @@ class MikaApi:
                 if not isinstance(result, dict):
                     raise ValueError()
                 return result
-        except urllib.error.HTTPError as exc:
-            # A 5xx after a write might follow execution. Never resubmit automatically.
-            raise ApiError("http_" + str(exc.code), uncertain=writing and exc.code >= 500,
-                           status=exc.code) from None
-        except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException):
+        except (OSError, ValueError, http.client.HTTPException):
             raise ApiError("connection_or_response_error", uncertain=writing) from None
+        finally:
+            conn.close()
 
     def check(self, force=False):
         if not force and self.info and time.monotonic() - self.checked_at < 30:

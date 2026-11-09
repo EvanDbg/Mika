@@ -158,7 +158,9 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
     val usage: UsageLedger by lazy { UsageLedger(java.io.File(filesDir, "usage-v1.json")) }
 
     /** 模型配置与 Key;建出的模型都套上计量,记到 [usage]。 */
-    override val providers: ProviderStore by lazy { ProviderStore.create(this, usage, "Mika/${BuildConfig.VERSION_NAME}") }
+    override val providers: ProviderStore by lazy {
+        ProviderStore.create(this, usage, "Mika/${BuildConfig.VERSION_NAME}", usage::providerTokensToday)
+    }
 
     /** 语音转文字的选择:整个进程一份,设置页改了输入框立刻看得到(两份实例互相看不到对方的 set)。 */
     val speech: com.wangzan101.mika.voice.SpeechSettings by lazy { com.wangzan101.mika.voice.SpeechSettings.get(this) }
@@ -265,6 +267,9 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
         com.wangzan101.mika.about.UpdateChecker(java.io.File(filesDir, "update-v1.json"), BuildConfig.VERSION_NAME,
             deviceAbis = android.os.Build.SUPPORTED_ABIS.toList())
     }
+
+    internal val apkUpdater by lazy { com.wangzan101.mika.about.ApkUpdater(this) }
+    internal val automaticUpdates by lazy { com.wangzan101.mika.about.AutomaticUpdates(this, apkUpdater) }
 
     /** 浮在别的 App 上的悬浮胶囊。 */
     val capsule: CapsuleController by lazy { CapsuleController(this, taskState, foreground, resources.takeoverQueue) }
@@ -410,7 +415,7 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
         // 上次进程留下的网页上传副本
         scope.launch { runCatching { WebFiles.clearStale(this@MikaApp, SandboxDirs(this@MikaApp).gate) } }
         // 更新已经装上后,关于页下好的安装包
-        scope.launch(Dispatchers.IO) { runCatching { com.wangzan101.mika.about.ApkUpdater(this@MikaApp).dropInstalled() } }
+        scope.launch(Dispatchers.IO) { runCatching { apkUpdater.dropInstalled() } }
         // 运行环境没准备好(首次启动、Mika 升级后)就在后台准备,不联网、对用户不可见
         if (!quit) RuntimePreparer.ensure(this)
         // 沙箱就绪(启动时已就绪,或刚装好)就把技能目录核对一次:App 更新带来的脚本马上能用

@@ -19,6 +19,7 @@ data class BrowserDownload(
     val total: Long,
     val mime: String?,
     val reason: Int,
+    val updatedAt: Long = 0,
 ) {
     /** 还在排队、下载或暂停。 */
     val running: Boolean
@@ -32,21 +33,27 @@ data class BrowserDownload(
 }
 
 /**
- * 用户浏览器里的下载:交给系统 [DownloadManager],文件落在系统「下载」目录,通知栏显示进度。
+ * 用户浏览器里的下载:匿名请求交给系统 [DownloadManager]，需要 Cookie 的请求由应用下载到系统「下载」目录。
  * 下载的链接只收 http/https(blob:、data: 这类网页自己生成的链接系统下载不了,开始失败)。
- * User-Agent 和 Cookie 从标签带过去;重名时在扩展名前加「 (2)」。列表、取消、删除、打开都问系统要。
+ * User-Agent 从标签带过去；Cookie 只随同源请求发送，交给系统的下载不带登录态。
  * 只列浏览器自己排队的下载(记下 id),不会把关于页的更新包等别的下载混进来。
  */
 class BrowserDownloads(context: Context, dir: File) {
     private val app = context.applicationContext
     private val manager = app.getSystemService(DownloadManager::class.java)
     private val ids = DownloadIds(File(dir, IDS_FILE))
+    private val authenticated by lazy { AuthenticatedBrowserDownloads(app) }
 
     /** 开始下载;返回保存的文件名。链接不支持、开始失败或系统没有下载服务时为 null。 */
-    fun enqueue(url: String, userAgent: String, contentDisposition: String?, mime: String?): String? {
-        val m = manager ?: return null
+    suspend fun enqueue(url: String, userAgent: String, contentDisposition: String?, mime: String?): String? {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return null
-        val name = DownloadNames.unique(DownloadNames.sanitize(URLUtil.guessFileName(url, contentDisposition, mime)), existingNames(m))
+        val suggested = DownloadNames.sanitize(URLUtil.guessFileName(url, contentDisposition, mime))
+        val needsCookies = withContext(Dispatchers.Main.immediate) {
+            runCatching { !WebTab.cookieManager().getCookie(url).isNullOrBlank() }.getOrNull()
+        } ?: return null
+        if (needsCookies) return authenticated.enqueue(url, userAgent, suggested, mime)
+        val m = manager ?: return null
+        val name = DownloadNames.unique(suggested, existingNames(m))
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle(name)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -55,7 +62,6 @@ class BrowserDownloads(context: Context, dir: File) {
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
         mime?.takeIf { it.isNotBlank() }?.let(request::setMimeType)
         userAgent.takeIf { it.isNotBlank() }?.let { request.addRequestHeader("User-Agent", it) }
-        WebTab.cookieManager().getCookie(url)?.takeIf { it.isNotBlank() }?.let { request.addRequestHeader("Cookie", it) }
         val id = runCatching { m.enqueue(request) }.getOrNull() ?: return null
         ids.add(id)
         return name
@@ -63,10 +69,11 @@ class BrowserDownloads(context: Context, dir: File) {
 
     /** 浏览器自己的下载,最新的在前,至多 [limit] 条。 */
     suspend fun list(limit: Int = LIMIT): List<BrowserDownload> = withContext(Dispatchers.IO) {
-        val m = manager ?: return@withContext emptyList()
+        val secured = authenticated.list()
+        val m = manager ?: return@withContext secured.sortedByDescending { it.updatedAt }.take(limit)
         val wanted = ids.all()
-        if (wanted.isEmpty()) return@withContext emptyList()
-        runCatching {
+        if (wanted.isEmpty()) return@withContext secured.sortedByDescending { it.updatedAt }.take(limit)
+        val system = runCatching {
             m.query(DownloadManager.Query().setFilterById(*wanted)).use { c ->
                 val id = c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)
                 val title = c.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)
@@ -75,6 +82,7 @@ class BrowserDownloads(context: Context, dir: File) {
                 val total = c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
                 val mime = c.getColumnIndexOrThrow(DownloadManager.COLUMN_MEDIA_TYPE)
                 val reason = c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)
+                val modified = c.getColumnIndexOrThrow(DownloadManager.COLUMN_LAST_MODIFIED_TIMESTAMP)
                 val out = ArrayList<BrowserDownload>()
                 while (c.moveToNext()) {
                     out += BrowserDownload(
@@ -85,22 +93,26 @@ class BrowserDownloads(context: Context, dir: File) {
                         total = c.getLong(total),
                         mime = c.getString(mime),
                         reason = c.getInt(reason),
+                        updatedAt = c.getLong(modified),
                     )
                 }
-                ids.retain(out.map { it.id }.toSet())
+                ids.pruneMissing(wanted, out.map { it.id }.toSet())
                 out.sortedByDescending { it.id }.take(limit)
             }
         }.getOrDefault(emptyList())
+        (system + secured).sortedByDescending { it.updatedAt }.take(limit)
     }
 
     /** 取消下载或删掉记录(系统会把已下载的文件一起删掉)。 */
     fun remove(id: Long) {
+        if (id < 0) return authenticated.remove(id)
         runCatching { manager?.remove(id) }
         ids.remove(id)
     }
 
     /** 已下载文件的 content:// 地址;没有完成时为 null。 */
-    fun contentUri(id: Long): Uri? = runCatching { manager?.getUriForDownloadedFile(id) }.getOrNull()
+    fun contentUri(id: Long): Uri? =
+        if (id < 0) authenticated.uri(id) else runCatching { manager?.getUriForDownloadedFile(id) }.getOrNull()
 
     private fun existingNames(m: DownloadManager): Set<String> {
         val names = HashSet<String>()
@@ -143,8 +155,8 @@ internal class DownloadIds(private val file: File, private val limit: Int = 200)
     }
 
     @Synchronized
-    fun retain(all: Set<Long>) {
-        if (ids.retainAll(all)) save()
+    fun pruneMissing(queried: LongArray, found: Set<Long>) {
+        if (ids.removeAll(queried.filterNot(found::contains).toSet())) save()
     }
 
     @Synchronized
