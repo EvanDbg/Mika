@@ -24,7 +24,7 @@ class FeishuSender:
                 current = ""
             current += char
         chunks.append(current)
-        message_ids = []
+        sent = {}
         for index, chunk in enumerate(chunks):
             body = (CreateMessageRequestBody.builder().receive_id(chat).msg_type("text")
                     .content(json.dumps({"text": chunk}, ensure_ascii=False))
@@ -36,8 +36,8 @@ class FeishuSender:
             if not response.success():
                 raise RuntimeError("feishu_send_failed:" + str(response.code))
             if response.data and response.data.message_id:
-                message_ids.append(response.data.message_id)
-        return message_ids
+                sent[response.data.message_id] = int(response.data.create_time or 0)
+        return sent
 
 
 def check_feishu(config):

@@ -90,6 +90,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -446,7 +447,7 @@ private fun InputField(field: CardInput, ui: CardInputUi, actions: CardActions, 
             BasicTextField(
                 shownValue, { v -> fieldValue = v; if (v.text != ui.draft) actions.draft(v.text) },
                 Modifier.testTag("capsule-field").fillMaxWidth().focusRequester(focus).semantics { contentDescription = field.hint },
-                textStyle = Body.copy(color = c.ink), maxLines = 4, cursorBrush = SolidColor(c.accent),
+                textStyle = Body.copy(color = c.ink, textDirection = TextDirection.Content), maxLines = 4, cursorBrush = SolidColor(c.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { if (ui.canSend) actions.send() }),
             )

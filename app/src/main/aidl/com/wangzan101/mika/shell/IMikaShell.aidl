@@ -98,7 +98,8 @@ interface IMikaShell {
     // 主屏设备准备,与虚拟屏按键白名单分开;凭据只经 Binder 传入,不经 shell 命令行。
     boolean wakeDevice() = 41;
     boolean dismissDeviceKeyguard() = 42;
-    boolean enterDeviceCredential(int kind, in byte[] credential) = 43;
+    // clear=输入前要回删的已有字符数(空框为 0,避免在部分系统上空框 DEL 关掉密码页)
+    boolean enterDeviceCredential(int kind, in byte[] credential, int clear) = 43;
 
     // 同 getAudioMode / setAudioMuted / setAudioMode,作用在 userId 那份用户里的那份(分身、工作资料);
     // userId 是 Mika 自己的用户时等同原来的几个。PLAY_AUDIO 按包 + 用户分开设,两份互不影响
@@ -118,6 +119,9 @@ interface IMikaShell {
     // 只在 Mika 的虚拟屏、指定的最前面任务里,把可打印 ASCII 作为键盘事件输入;不发送控制字符
     // 0=未发送 1=全部事件已投递 2=投递不确定(可能只输入了前缀)
     int injectAsciiText(int displayId, int taskId, String packageName, String text) = 50;
+
+    // 对 SystemUI 做一次定向点击,用于生物识别优先锁屏页上「用密码解锁」这类回退按钮;不含凭据。
+    boolean revealDeviceCredentialTap(int x, int y) = 51;
 
     // 沿用早先定下的销毁事务号;AIDL 要求要么全部方法编号要么都不编号
     void destroy() = 16777114;

@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">日本語</string>
     <string name="speech_asr_language_yue">広東語</string>
     <string name="speech_asr_language_ko">韓国語</string>
+    <string name="terminal_title">ターミナル</string>
+    <string name="terminal_open">ターミナル</string>
+    <string name="terminal_open_action">ターミナルを開く</string>
+    <string name="terminal_network_on">オンライン</string>
+    <string name="terminal_network_off">オフライン</string>
+    <string name="terminal_preparing">環境を準備しています…</string>
+    <string name="terminal_unsupported">この端末はターミナルに対応していません（arm64 が必要です）。</string>
+    <string name="terminal_unavailable">環境の準備ができていません。しばらくしてからもう一度お試しください。</string>
+    <string name="terminal_limit">ターミナルは同時に 2 つまでです。先に 1 つ閉じてください。</string>
+    <string name="terminal_storage_low">空き容量が 500 MB 未満のため、ターミナルを開けません。</string>
+    <string name="terminal_busy">環境をリセットしています。しばらくしてからもう一度お試しください。</string>
+    <string name="terminal_revoked">環境がリセットされたかワークスペースが消去されたため、ターミナルを閉じました。</string>
+    <string name="terminal_exited">ターミナルは終了しました（終了コード %1$d）。</string>
+    <string name="terminal_closed">ターミナルは閉じています。</string>
+    <string name="terminal_close">ターミナルを閉じる</string>
+    <string name="terminal_close_title">このターミナルを閉じますか？</string>
+    <string name="terminal_close_body">実行中のプログラムも終了します。</string>
+    <string name="terminal_close_confirm">閉じる</string>
+    <string name="terminal_retry">もう一度開く</string>
+    <string name="terminal_stop">停止</string>
+    <string name="terminal_task_running">Mika もこのワークスペースで作業しています。同時に変更すると互いに影響する場合があります。</string>
+    <string name="terminal_copy_all">すべてコピー</string>
+    <string name="terminal_copied">コピーしました</string>
 </resources>

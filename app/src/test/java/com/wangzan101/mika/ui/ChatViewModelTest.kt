@@ -7,6 +7,8 @@ import com.wangzan101.mika.cap.sandbox.ImportResult
 import com.wangzan101.mika.chat.BranchCopyResult
 import com.wangzan101.mika.chat.BranchOrigin
 import com.wangzan101.mika.chat.BranchWorkspace
+import com.wangzan101.mika.chat.RetryAttachmentResult
+import com.wangzan101.mika.chat.RetryAttachmentStatus
 import com.wangzan101.mika.chat.ConversationStore
 import com.wangzan101.mika.chat.CurrentChat
 import com.wangzan101.mika.chat.SharedDraft
@@ -267,6 +269,114 @@ class ChatViewModelTest {
         described.complete(listOf(PendingAttachment("content://late.pdf", "late.pdf", 1)))
         runCurrent()
         assertTrue(vm.ui.value.attachments.isEmpty())
+    }
+
+    @Test fun libraryAttachmentMergesIntoTargetDraftWithoutSwitchingOrOverwriting() = runTest {
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+            sandboxReady = MutableStateFlow(true))
+        runCurrent()
+        vm.openConversation("a")
+        vm.input("draft A")
+        vm.openConversation("b")
+        vm.input("draft B")
+        val attachment = PendingAttachment("content://library/a", "a.pdf", 1)
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", attachment))
+        assertEquals("draft B", vm.ui.value.input)
+        assertTrue(vm.ui.value.attachments.isEmpty())
+        vm.openConversation("a")
+        assertEquals("draft A", vm.ui.value.input)
+        assertEquals(listOf(attachment), vm.ui.value.attachments)
+        repeat(8) { assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", PendingAttachment("content://library/$it", "$it.pdf", 1))) }
+        assertEquals(LibraryAttachmentResult.Full, vm.addLibraryAttachment("a", PendingAttachment("content://library/overflow", "overflow.pdf", 1)))
+        assertEquals(9, vm.ui.value.attachments.size)
+        vm.deleteConversation("a")
+        assertEquals(LibraryAttachmentResult.Unavailable, vm.addLibraryAttachment("a", attachment))
+    }
+
+    @Test fun librarySourceIsAddedOncePerDraftAndDuplicateCopyIsReleased() = runTest {
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+            sandboxReady = MutableStateFlow(true))
+        runCurrent()
+        vm.openConversation("a")
+        vm.input("existing draft")
+        val source = LibraryFileHandle.Workspace("origin", "/workspace/inbox/a.pdf")
+        val first = PendingAttachment("content://library/first", "a.pdf", 1)
+        val duplicate = PendingAttachment("content://library/second", "a.pdf", 1)
+        var firstReleased = 0
+        var duplicateReleased = 0
+        val existing = PendingAttachment("content://other/file", "other.txt", 1)
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", existing))
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", first, source) { firstReleased++ })
+        vm.openConversation("b")
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", duplicate, source) { duplicateReleased++ })
+        assertEquals(1, duplicateReleased)
+        assertEquals(0, firstReleased)
+        vm.openConversation("a")
+        assertEquals("existing draft", vm.ui.value.input)
+        assertEquals(listOf(existing, first), vm.ui.value.attachments)
+        vm.removeAttachment(first.uri)
+        assertEquals(1, firstReleased)
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", duplicate, source))
+        assertEquals(listOf(existing, duplicate), vm.ui.value.attachments)
+    }
+
+    @Test fun libraryCopiesRemainWhileReferencedOrImportingAndReleaseAfterward() = runTest {
+        val imported = CompletableDeferred<ImportResult>()
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+            sandboxReady = MutableStateFlow(true), importAttachments = { _, _ -> imported.await() })
+        runCurrent()
+        vm.openConversation("a")
+        var released = 0
+        val item = PendingAttachment("content://library/copy", "copy.pdf", 1)
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("a", item) { released++ })
+        assertEquals(LibraryAttachmentResult.Added, vm.addLibraryAttachment("b", item))
+        vm.removeAttachment(item.uri)
+        assertEquals(0, released)
+        vm.openConversation("b")
+        assertTrue(vm.send("send", ok))
+        runCurrent()
+        vm.deleteConversation("b")
+        assertEquals(0, released)
+        imported.complete(ImportResult(listOf("/workspace/inbox/copy.pdf" to 1L), emptyList()))
+        runCurrent()
+        assertEquals(1, released)
+    }
+
+    @Test fun replacingSharedDraftAndChangingFollowUpModeReleaseLibraryCopies() = runTest {
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+            sandboxReady = MutableStateFlow(true), sharedDrafts = SharedDraftStore(tmp.newFolder()))
+        runCurrent()
+        vm.openConversation("a")
+        var replacedReleased = 0
+        val first = PendingAttachment("content://library/first", "first.pdf", 1)
+        vm.addLibraryAttachment("a", first) { replacedReleased++ }
+        assertTrue(vm.openSharedDraft(SharedDraft("", "replacement"), inCurrentConversation = true))
+        assertEquals(0, replacedReleased)
+        assertTrue(vm.confirmPendingSharedDraft())
+        assertEquals(1, replacedReleased)
+        assertEquals("replacement", vm.ui.value.input)
+
+        vm.setFollowUpMode(FollowUpMode.Queue)
+        var modeReleased = 0
+        val second = PendingAttachment("content://library/second", "second.pdf", 1)
+        vm.addLibraryAttachment("a", second) { modeReleased++ }
+        vm.setFollowUpMode(FollowUpMode.Steer)
+        assertEquals(1, modeReleased)
+        assertTrue(vm.ui.value.attachments.isEmpty())
+        assertEquals("replacement", vm.ui.value.input)
+    }
+
+    @Test fun libraryCopyIsReleasedAfterSuccessfulSend() = runTest {
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, ConversationStore(tmp.newFolder()),
+            sandboxReady = MutableStateFlow(true),
+            importAttachments = { _, _ -> ImportResult(listOf("/workspace/inbox/a.pdf" to 1L), emptyList()) })
+        runCurrent()
+        vm.openConversation("a")
+        var released = 0
+        vm.addLibraryAttachment("a", PendingAttachment("content://library/a", "a.pdf", 1)) { released++ }
+        assertTrue(vm.send("send", ok))
+        runCurrent()
+        assertEquals(1, released)
     }
 
     @Test fun failedAttachmentImportAndQueueWriteKeepTheComposerDraft() = runTest {
@@ -1002,6 +1112,12 @@ class ChatViewModelTest {
         assertEquals("将被取消的分享", vm.ui.value.pendingSharedDraft?.text)
         assertEquals("原有草稿", vm.ui.value.input)
         assertNotNull(vm.ui.value.quote)
+
+        val missingImage = cancelledImage.copy(fileName = "missing.jpg")
+        assertFalse(vm.openSharedDraft(SharedDraft("", "无效的替换", missingImage), inCurrentConversation = true))
+        assertEquals("将被取消的分享", vm.ui.value.pendingSharedDraft?.text)
+        assertEquals(vm.ui.value.pendingSharedDraft, drafts.readPending())
+        assertTrue(drafts.imageFile("cancelled.jpg")!!.isFile)
 
         // 点「取消」:保留原草稿与原图,删除新分享的临时图片副本。
         vm.cancelPendingSharedDraft()
@@ -2940,6 +3056,104 @@ class ChatViewModelTest {
         assertEquals(branch, vm.ui.value.conversationId)
         assertEquals(listOf("一"), vm.ui.value.exchanges.map { it.goal })
         assertEquals(listOf(source to branch), workspace.calls)
+    }
+
+    @Test fun retryRestoresAttachmentsInOrderAndSendsEditedTextWithoutImportingThem() = runTest {
+        val store = ConversationStore(tmp.newFolder())
+        val source = store.newConversation()
+        val paths = listOf("/workspace/inbox/a.pdf", "/workspace/inbox/b.jpg", "/workspace/inbox/c.jpg")
+        store.append(source, Turn(paths.joinToString("\n") { "附件:$it(2 B)" }, "好", "succeeded"))
+        val workspace = object : BranchWorkspace {
+            override suspend fun copyInbox(sourceId: String, targetId: String, maxBytes: Long) = BranchCopyResult(0)
+            override suspend fun copyInboxForRetry(sourceId: String, targetId: String, paths: List<String>, maxBytes: Long) =
+                paths.map { RetryAttachmentResult(it, RetryAttachmentStatus.COPIED, 2) }
+            override suspend fun checkInboxAttachments(targetId: String, paths: List<String>) =
+                paths.map { RetryAttachmentResult(it, RetryAttachmentStatus.COPIED, 2) }
+        }
+        var imports = 0
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, store, branchWorkspace = workspace,
+            importAttachments = { _, _ -> imports++; ImportResult(emptyList(), emptyList()) }).also { runCurrent() }
+        vm.openConversation(source)
+        val result = vm.branchBefore(0)!!
+        assertEquals("", vm.ui.value.input)
+        assertEquals(paths, vm.ui.value.attachments.map { it.workspacePath })
+        assertTrue(calls.none { it.startsWith("start:") })
+        vm.removeAttachment(vm.ui.value.attachments[1].uri)
+        vm.input("修改后的问题")
+        assertTrue(vm.send("修改后的问题", ok))
+        runCurrent()
+        assertEquals(0, imports)
+        assertEquals("start:修改后的问题\n附件:${paths[0]}(2 B)\n附件:${paths[2]}(2 B)", calls.last { it.startsWith("start:") })
+        assertFalse(result.needsReattach)
+    }
+
+    @Test fun retryReportsMissingItemsAndKeepsDraftsSeparate() = runTest {
+        val store = ConversationStore(tmp.newFolder())
+        val source = store.newConversation()
+        val first = "/workspace/inbox/a.pdf"
+        val missing = "/workspace/inbox/b.jpg"
+        store.append(source, Turn("原文\n附件:$first(2 B)\n附件:$missing(2 B)", "好", "succeeded"))
+        val workspace = object : BranchWorkspace {
+            override suspend fun copyInbox(sourceId: String, targetId: String, maxBytes: Long) = BranchCopyResult(0)
+            override suspend fun copyInboxForRetry(sourceId: String, targetId: String, paths: List<String>, maxBytes: Long) =
+                listOf(RetryAttachmentResult(first, RetryAttachmentStatus.COPIED, 2), RetryAttachmentResult(missing, RetryAttachmentStatus.MISSING))
+        }
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, store, branchWorkspace = workspace).also { runCurrent() }
+        vm.openConversation(source)
+        vm.input("原会话草稿")
+        val result = vm.branchBefore(0)!!
+        assertEquals(listOf(missing), result.failures.map { it.path })
+        assertEquals(listOf(first), vm.ui.value.attachments.map { it.workspacePath })
+        vm.openConversation(source)
+        assertEquals("原会话草稿", vm.ui.value.input)
+        assertTrue(vm.ui.value.attachments.isEmpty())
+        vm.openConversation(result.conversationId)
+        assertEquals("原文", vm.ui.value.input)
+        assertEquals(listOf(first), vm.ui.value.attachments.map { it.workspacePath })
+    }
+
+    @Test fun retryReportsFailuresForAttachmentsInEarlierTurns() = runTest {
+        val store = ConversationStore(tmp.newFolder())
+        val source = store.newConversation()
+        val previous = "/workspace/inbox/old.pdf"
+        val current = "/workspace/inbox/new.jpg"
+        store.append(source, Turn("以前\n附件:$previous(2 B)", "好", "succeeded"))
+        store.append(source, Turn("现在\n附件:$current(2 B)", "好", "succeeded"))
+        val workspace = object : BranchWorkspace {
+            override suspend fun copyInbox(sourceId: String, targetId: String, maxBytes: Long) = BranchCopyResult(0)
+            override suspend fun copyInboxForRetry(sourceId: String, targetId: String, paths: List<String>, maxBytes: Long): List<RetryAttachmentResult> {
+                assertEquals(listOf(current, previous), paths)
+                return listOf(RetryAttachmentResult(current, RetryAttachmentStatus.COPIED, 2), RetryAttachmentResult(previous, RetryAttachmentStatus.OVER_LIMIT))
+            }
+        }
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, store, branchWorkspace = workspace).also { runCurrent() }
+        vm.openConversation(source)
+        val result = vm.branchBefore(1)!!
+        assertEquals(listOf(previous), result.failures.map { it.path })
+        assertEquals(listOf(current), vm.ui.value.attachments.map { it.workspacePath })
+    }
+
+    @Test fun retryDoesNotSendWhenRestoredFileDisappears() = runTest {
+        val store = ConversationStore(tmp.newFolder())
+        val source = store.newConversation()
+        val path = "/workspace/inbox/a.pdf"
+        store.append(source, Turn("看看\n附件:$path(2 B)", "好", "succeeded"))
+        val workspace = object : BranchWorkspace {
+            override suspend fun copyInbox(sourceId: String, targetId: String, maxBytes: Long) = BranchCopyResult(0)
+            override suspend fun copyInboxForRetry(sourceId: String, targetId: String, paths: List<String>, maxBytes: Long) =
+                paths.map { RetryAttachmentResult(it, RetryAttachmentStatus.COPIED, 2) }
+            override suspend fun checkInboxAttachments(targetId: String, paths: List<String>) =
+                paths.map { RetryAttachmentResult(it, RetryAttachmentStatus.MISSING) }
+        }
+        val vm = ChatViewModel(backgroundScope, state, stage, actions, store, branchWorkspace = workspace).also { runCurrent() }
+        vm.openConversation(source)
+        vm.branchBefore(0)!!
+        assertTrue(vm.send("看看", ok))
+        runCurrent()
+        assertTrue(calls.none { it.startsWith("start:") })
+        assertEquals("看看", vm.ui.value.input)
+        assertEquals(listOf("a.pdf"), vm.ui.value.rejectedAttachments)
+        assertEquals(1, vm.ui.value.attachments.size)
     }
 
     /** 第一轮之前没有轮次:新对话是空的;原消息带附件时提示重新添加。 */

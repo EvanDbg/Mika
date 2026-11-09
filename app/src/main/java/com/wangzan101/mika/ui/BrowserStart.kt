@@ -222,7 +222,7 @@ private fun BigSearchField(value: String, onChange: (String) -> Unit, onGo: () -
                 value, onChange,
                 Modifier.fillMaxWidth().testTag("browser-search").onFocusChanged { focused = it.isFocused },
                 singleLine = true,
-                textStyle = BigText.copy(color = c.ink),
+                textStyle = BigText.copy(color = c.ink, textDirection = androidx.compose.ui.text.style.TextDirection.Content),
                 cursorBrush = SolidColor(c.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go, autoCorrectEnabled = false),
                 keyboardActions = KeyboardActions(onGo = { onGo() }),

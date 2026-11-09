@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
-/** 自动下载复用手动更新的任务；离开前台后系统下载仍继续，回来再看结果。 */
+/** 自动下载复用更新任务；进程存活时离开前台仍继续，回来再看结果。 */
 internal class AutomaticUpdates(context: Context, private val updater: ApkUpdater) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val prefs = context.getSharedPreferences("automatic-updates", Context.MODE_PRIVATE)
@@ -69,11 +69,11 @@ internal class AutomaticUpdates(context: Context, private val updater: ApkUpdate
 
     private fun wifiNetworks() = callbackFlow<Network?> {
         fun activeWifi(): Network? = connectivity.activeNetwork?.takeIf {
-            connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            connectivity.getNetworkCapabilities(it)?.isPhysicalWifi() == true
         }
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                trySend(network.takeIf { capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) })
+                trySend(network.takeIf { capabilities.isPhysicalWifi() })
             }
 
             override fun onLost(network: Network) {
@@ -84,4 +84,7 @@ internal class AutomaticUpdates(context: Context, private val updater: ApkUpdate
         trySend(activeWifi())
         awaitClose { connectivity.unregisterNetworkCallback(callback) }
     }.distinctUntilChanged()
+
+    private fun NetworkCapabilities.isPhysicalWifi(): Boolean =
+        hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
 }

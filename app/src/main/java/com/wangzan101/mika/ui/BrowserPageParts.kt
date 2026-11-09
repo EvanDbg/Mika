@@ -229,7 +229,7 @@ private fun AddressEditor(url: String, modifier: Modifier, onGo: (String) -> Uni
             text, { text = it },
             Modifier.weight(1f).focusRequester(focus).testTag("browser-address"),
             singleLine = true,
-            textStyle = MikaType.Body.copy(fontSize = 14.5.sp, color = c.ink),
+            textStyle = MikaType.Body.copy(fontSize = 14.5.sp, color = c.ink, textDirection = androidx.compose.ui.text.style.TextDirection.Content),
             cursorBrush = SolidColor(c.accent),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
             keyboardActions = KeyboardActions(onGo = { onGo(text.text) }),

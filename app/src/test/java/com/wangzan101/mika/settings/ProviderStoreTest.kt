@@ -65,6 +65,24 @@ class ProviderStoreTest {
     private fun connected(s: ProviderStore, name: String = "P", key: String = "k") =
         s.connect(name, ProviderConfig.Kind.OpenAiCompat, "https://${name.lowercase()}.test/v1", key, listOf(ListedModel("m1"), ListedModel("m2")))
 
+    @Test fun keyChangeInvalidatesAllowanceForOnlyThatProvider() {
+        val store = store()
+        val first = connected(store)
+        val other = connected(store, "Other")
+        val revisions = store.providerKeyRevisions.value
+        val providers = store.providers.value
+
+        store.updateProviderKey(first.id, "new-key")
+
+        assertEquals(providers, store.providers.value)
+        assertEquals(revisions.getValue(first.id) + 1, store.providerKeyRevisions.value[first.id])
+        assertEquals(revisions[other.id], store.providerKeyRevisions.value[other.id])
+        assertNull(store.allowanceKey(first, revisions.getValue(first.id)))
+        assertEquals("new-key", store.allowanceKey(first, store.providerKeyRevisions.value.getValue(first.id)))
+        store.removeProvider(first.id)
+        assertNull(store.providerKeyRevisions.value[first.id])
+    }
+
     // ---------- 用途的选择 ----------
 
     @Test fun modelContextSurvivesPruningAndIsSharedOnlyWithinTheSameProviderAndModel() {

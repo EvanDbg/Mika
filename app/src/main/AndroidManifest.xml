@@ -144,6 +144,14 @@
             android:exported="false"
             android:theme="@style/Theme.Mika" />
 
+        <!-- 用户自己打开的终端:只从 App 内进,不导出;转屏不重建,输入法调窗口高度 -->
+        <activity
+            android:name=".ui.terminal.TerminalActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Mika" />
+
         <!-- 网页接管:把后台的网页标签(同一个 WebView)拿到主屏给用户处理 -->
         <activity
             android:name=".web.WebTakeoverActivity"

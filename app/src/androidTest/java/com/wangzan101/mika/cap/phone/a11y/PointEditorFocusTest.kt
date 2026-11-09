@@ -15,11 +15,11 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PointEditorFocusTest {
-    @Test fun pointTypeRejectsAnotherVisibleFocusedEditor() = rejects { screen, target ->
+    @Test fun pointTypeRejectsAnotherFocusedEditorWhenTargetSupportsLongClick() = rejects { screen, target ->
         screen.typeAt(target.centerX, target.centerY, "New draft")
     }
 
-    @Test fun pointClearRejectsAnotherVisibleFocusedEditor() = rejects { screen, target ->
+    @Test fun pointClearRejectsAnotherFocusedEditorWhenTargetSupportsLongClick() = rejects { screen, target ->
         screen.clearAt(target.centerX, target.centerY)
     }
 

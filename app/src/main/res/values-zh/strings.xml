@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">日语</string>
     <string name="speech_asr_language_yue">粤语</string>
     <string name="speech_asr_language_ko">韩语</string>
+    <string name="terminal_title">终端</string>
+    <string name="terminal_open">终端</string>
+    <string name="terminal_open_action">打开终端</string>
+    <string name="terminal_network_on">联网</string>
+    <string name="terminal_network_off">断网</string>
+    <string name="terminal_preparing">正在准备运行环境…</string>
+    <string name="terminal_unsupported">此设备不支持终端（需要 arm64）。</string>
+    <string name="terminal_unavailable">运行环境还没准备好，稍后再试。</string>
+    <string name="terminal_limit">最多同时开两个终端，先关掉一个。</string>
+    <string name="terminal_storage_low">手机剩余空间不足 500 MB，暂时不能打开终端。</string>
+    <string name="terminal_busy">运行环境正在重置，稍后再试。</string>
+    <string name="terminal_revoked">运行环境已重置或工作区被清理，终端已关闭。</string>
+    <string name="terminal_exited">终端已结束（退出码 %1$d）。</string>
+    <string name="terminal_closed">终端已关闭。</string>
+    <string name="terminal_close">关闭终端</string>
+    <string name="terminal_close_title">关闭这个终端？</string>
+    <string name="terminal_close_body">还在运行的程序会一起结束。</string>
+    <string name="terminal_close_confirm">关闭</string>
+    <string name="terminal_retry">重新打开</string>
+    <string name="terminal_stop">停止</string>
+    <string name="terminal_task_running">Mika 也在这个工作区里工作，两边同时改可能互相影响。</string>
+    <string name="terminal_copy_all">复制全部</string>
+    <string name="terminal_copied">已复制</string>
 </resources>

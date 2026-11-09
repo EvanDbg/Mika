@@ -32,6 +32,7 @@ class DeviceAccessTest {
         var wakes = 0
         var dismisses = 0
         var reveals = 0
+        var fallbacks = 0
         var entries = 0
         var inputWorks = true
         var readyTarget = true
@@ -57,6 +58,7 @@ class DeviceAccessTest {
             return true
         }
         override suspend fun revealCredential(): Boolean { reveals++; return true }
+        override suspend fun revealCredentialFallback(): Boolean { fallbacks++; return true }
         override suspend fun credentialReady(kind: CredentialKind): Boolean { targetHook(); return readyTarget && (visibleKind == null || visibleKind == kind) }
         override suspend fun enter(credential: DeviceCredential): Boolean {
             entries++
@@ -302,6 +304,37 @@ class DeviceAccessTest {
         assertEquals(1, p.reveals)
         assertEquals(1, p.entries)
         assertFalse(s.attemptBlocked)
+    }
+
+    @Test fun biometricFirstPageGetsOneSwipeThenOneFallbackTapBeforeUnsupported() = runTest {
+        val p = Port().apply { readyTarget = false }
+        val s = Store()
+        assertEquals("unsupported_keyguard", DeviceAccess(p, s, 10, 30).unlock().status)
+        assertEquals(1, p.reveals)
+        assertEquals(1, p.fallbacks)
+        assertEquals(0, p.entries)
+        assertFalse(s.attemptBlocked)
+    }
+
+    @Test fun fallbackTapCanExposeTheCredentialKind() = runTest {
+        val p = Port().apply {
+            readyTarget = false
+            targetHook = { if (fallbacks > 0) readyTarget = true }
+        }
+        val s = Store()
+        assertEquals("unlocked", DeviceAccess(p, s, 10, 50).unlock().status)
+        assertEquals(1, p.reveals)
+        assertEquals(1, p.fallbacks)
+        assertEquals(1, p.entries)
+        assertFalse(s.attemptBlocked)
+    }
+
+    @Test fun readyKeyguardIsNotSwipedOrTapped() = runTest {
+        val p = Port()
+        assertEquals("unlocked", DeviceAccess(p, Store(), 10, 30).unlock().status)
+        assertEquals(0, p.reveals)
+        assertEquals(0, p.fallbacks)
+        assertEquals(1, p.entries)
     }
 
     @Test fun readyOrManuallyUnlockedKeyguardIsNotNeedlesslySwiped() = runTest {

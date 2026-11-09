@@ -506,6 +506,22 @@ def save_result(client, task_id, file_id, output):
 
 def execute(args, secrets):
     # Validate inputs before opening a connection or invoking the bootstrap script.
+    if args.command == "notification-doctor":
+        if args.url or args.token_file:
+            raise CliError("arguments", "notification-doctor requires ADB; it does not use HTTP credentials.")
+        try:
+            from mika_notifications import inspect_notifications, validate
+        except ModuleNotFoundError:
+            sys.path.append(str(Path(__file__).resolve().parent))
+            from mika_notifications import inspect_notifications, validate
+        try:
+            validate(args.package, args.dependency, args.listener, args.user)
+        except ValueError as error:
+            raise CliError("arguments", str(error)) from None
+        adb = Adb(args.adb, args.device or os.environ.get("ANDROID_SERIAL"))
+        adb.start_server()
+        adb.select()
+        return inspect_notifications(adb, args.package, args.dependency, args.listener, args.user)
     if args.command == "task":
         if args.action == "run":
             if (getattr(args, "attach", None) or getattr(args, "attachments", None)) and not args.goal and args.goal_file is None:
@@ -650,6 +666,12 @@ def parser():
                             ("doctor", "Read connection and phone state without starting a task"),
                             ("devices", "List ADB devices")]:
         sub.add_parser(name, help=help_text, parents=[common])
+    diagnostics = sub.add_parser("notification-doctor", parents=[common],
+                                help="Inspect Android notification configuration without opening apps or reading message text")
+    diagnostics.add_argument("--package", required=True, help="Android app whose notifications need investigation")
+    diagnostics.add_argument("--dependency", action="append", default=[], help="Related package to check; repeat when needed")
+    diagnostics.add_argument("--listener", help="Optional notification listener in package/class form")
+    diagnostics.add_argument("--user", type=int, default=0, help="Android user/profile ID (default: 0)")
     ui = sub.add_parser("ui", help="Open the phone owner's local task desk", parents=[common])
     ui.add_argument("--no-open", action="store_true", help="Print the desk URL instead of opening a browser")
     task = sub.add_parser("task", help="Run and inspect phone tasks", parents=[common])

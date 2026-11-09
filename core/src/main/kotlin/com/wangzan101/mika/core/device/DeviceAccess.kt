@@ -32,6 +32,8 @@ interface DeviceAccessPort {
     suspend fun dismiss(): Boolean
     /** 安全锁屏还停在通知/指纹页时,尝试一次通用的系统导航来露出凭据页;不识别文字,不输入凭据。 */
     suspend fun revealCredential(): Boolean = false
+    /** 上滑后仍是生物识别优先页、没有凭据框时,做一次通用的回退点击(点最大的可点目标);找不到目标就不动。 */
+    suspend fun revealCredentialFallback(): Boolean = false
     suspend fun credentialReady(kind: CredentialKind): Boolean
     /** 只读识别当前唯一的系统凭据框;未知、歧义或平台不支持时返回 null,不聚焦或输入。 */
     suspend fun detectedCredentialKind(): CredentialKind? = null
@@ -99,6 +101,7 @@ class DeviceAccess(private val port: DeviceAccessPort, private val store: Device
             if (!DeviceCredential.valid(it.kind, it.value)) return@withLock result("credential_unavailable", now)
             var targetReady = false
             var revealed = false
+            var fallbackTried = false
             var waited = 0L
             while (!targetReady && waited < waitMs) {
                 val current = read() ?: return@withLock result("device_unavailable")
@@ -107,12 +110,19 @@ class DeviceAccess(private val port: DeviceAccessPort, private val store: Device
                 if (!current.helperAvailable) return@withLock result("helper_unavailable", current)
                 targetReady = port.credentialReady(it.kind)
                 // dismiss 后先给系统凭据页一个轮询周期;仍认不出时才做一次导航,避免在已经可用的 PIN 页上多余滑动。
-                if (!targetReady && !revealed && waited >= pollMs) {
-                    if (!allowed()) return@withLock result("disabled", current)
-                    revealed = true
-                    port.revealCredential()
+                if (!targetReady) {
+                    if (!revealed && waited >= pollMs) {
+                        if (!allowed()) return@withLock result("disabled", current)
+                        revealed = true
+                        port.revealCredential()
+                    } else if (revealed && !fallbackTried && waited >= pollMs * 2) {
+                        // 上滑后仍是生物识别优先页(没有凭据框)时,再给一次回退点击的机会。
+                        if (!allowed()) return@withLock result("disabled", current)
+                        fallbackTried = true
+                        port.revealCredentialFallback()
+                    }
+                    delay(pollMs); waited += pollMs
                 }
-                if (!targetReady) { delay(pollMs); waited += pollMs }
             }
             if (!targetReady) {
                 val current = read() ?: return@withLock result("device_unavailable")

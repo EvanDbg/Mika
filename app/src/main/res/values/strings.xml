@@ -108,4 +108,27 @@
     <string name="speech_asr_language_ja">Japanese</string>
     <string name="speech_asr_language_yue">Cantonese</string>
     <string name="speech_asr_language_ko">Korean</string>
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_open">Terminal</string>
+    <string name="terminal_open_action">Open terminal</string>
+    <string name="terminal_network_on">Online</string>
+    <string name="terminal_network_off">Offline</string>
+    <string name="terminal_preparing">Preparing the environment…</string>
+    <string name="terminal_unsupported">This device does not support the terminal (arm64 required).</string>
+    <string name="terminal_unavailable">The environment is not ready yet. Try again in a moment.</string>
+    <string name="terminal_limit">Two terminals can be open at once. Close one first.</string>
+    <string name="terminal_storage_low">Less than 500 MB free, so the terminal cannot open.</string>
+    <string name="terminal_busy">The environment is being reset. Try again in a moment.</string>
+    <string name="terminal_revoked">The environment was reset or the workspace was cleared, so the terminal closed.</string>
+    <string name="terminal_exited">The terminal ended (exit code %1$d).</string>
+    <string name="terminal_closed">The terminal is closed.</string>
+    <string name="terminal_close">Close terminal</string>
+    <string name="terminal_close_title">Close this terminal?</string>
+    <string name="terminal_close_body">Programs still running will be stopped too.</string>
+    <string name="terminal_close_confirm">Close</string>
+    <string name="terminal_retry">Open again</string>
+    <string name="terminal_stop">Stop</string>
+    <string name="terminal_task_running">Mika is working in this workspace too; changes from both sides may interfere.</string>
+    <string name="terminal_copy_all">Copy all</string>
+    <string name="terminal_copied">Copied</string>
 </resources>

@@ -16,10 +16,11 @@ import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.net.InetAddress
+import java.net.Proxy
 import kotlin.coroutines.coroutineContext
 
 /**
- * 设了网络代理时的更新下载:系统下载服务不走 App 自己的代理,改由 Mika 用走代理的 [http] 在进程里下。
+ * 应用内更新下载,用于绑定 Wi-Fi 的自动下载以及使用应用代理的手动下载。
  * 先写到 `<目标>.part`,下完整了再改名成目标文件,所以「目标文件在」就是下好了。
  * 进程里只有一份(同一时间只下一个);进程被杀后没下完的算失败,用户重试即可。
  */
@@ -33,14 +34,16 @@ class ProxiedApkDownload(
     @Volatile private var bytes = 0L
     @Volatile private var total = -1L
 
-    fun start(url: String, file: File, wifi: Network? = null) {
+    fun start(url: String, file: File, wifi: Network? = null, wifiProxy: Proxy = Proxy.NO_PROXY) {
         cancel()
         target = file
         bytes = 0
         total = -1
         // 使用 Wi-Fi 自己的 DNS 和 socket，断开后连接失败，不会切到移动数据继续下载。
         val client = wifi?.let { network ->
-            http.newBuilder().socketFactory(network.socketFactory)
+            require(wifiProxy.type() != Proxy.Type.SOCKS)
+            // Keep the selected route for the transfer, including redirects and retries.
+            http.newBuilder().proxy(wifiProxy).socketFactory(network.socketFactory)
                 .dns(object : Dns {
                     override fun lookup(hostname: String): List<InetAddress> = network.getAllByName(hostname).toList()
                 })

@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">اليابانية</string>
     <string name="speech_asr_language_yue">الكانتونية</string>
     <string name="speech_asr_language_ko">الكورية</string>
+    <string name="terminal_title">الطرفية</string>
+    <string name="terminal_open">الطرفية</string>
+    <string name="terminal_open_action">فتح الطرفية</string>
+    <string name="terminal_network_on">متصل</string>
+    <string name="terminal_network_off">غير متصل</string>
+    <string name="terminal_preparing">تُجهّز البيئة…</string>
+    <string name="terminal_unsupported">هذا الجهاز لا يدعم الطرفية (يلزم arm64).</string>
+    <string name="terminal_unavailable">البيئة ليست جاهزة بعد. حاول مرة أخرى بعد قليل.</string>
+    <string name="terminal_limit">يمكن فتح طرفيتين في وقت واحد. أغلق واحدة أولاً.</string>
+    <string name="terminal_storage_low">المساحة الحرة أقل من 500 ميغابايت، لذا لا يمكن فتح الطرفية.</string>
+    <string name="terminal_busy">تُعاد تهيئة البيئة. حاول مرة أخرى بعد قليل.</string>
+    <string name="terminal_revoked">أُعيدت تهيئة البيئة أو مُسحت مساحة العمل، لذا أُغلقت الطرفية.</string>
+    <string name="terminal_exited">انتهت الطرفية (رمز الخروج %1$d).</string>
+    <string name="terminal_closed">الطرفية مغلقة.</string>
+    <string name="terminal_close">إغلاق الطرفية</string>
+    <string name="terminal_close_title">إغلاق هذه الطرفية؟</string>
+    <string name="terminal_close_body">ستتوقف البرامج التي ما زالت تعمل أيضاً.</string>
+    <string name="terminal_close_confirm">إغلاق</string>
+    <string name="terminal_retry">فتح مرة أخرى</string>
+    <string name="terminal_stop">إيقاف</string>
+    <string name="terminal_task_running">يعمل Mika أيضاً في مساحة العمل هذه؛ قد تتعارض التغييرات من الجانبين.</string>
+    <string name="terminal_copy_all">نسخ الكل</string>
+    <string name="terminal_copied">تم النسخ</string>
 </resources>

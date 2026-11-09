@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">Jepang</string>
     <string name="speech_asr_language_yue">Kanton</string>
     <string name="speech_asr_language_ko">Korea</string>
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_open">Terminal</string>
+    <string name="terminal_open_action">Buka terminal</string>
+    <string name="terminal_network_on">Online</string>
+    <string name="terminal_network_off">Offline</string>
+    <string name="terminal_preparing">Menyiapkan lingkungan…</string>
+    <string name="terminal_unsupported">Perangkat ini tidak mendukung terminal (perlu arm64).</string>
+    <string name="terminal_unavailable">Lingkungan belum siap. Coba lagi sebentar lagi.</string>
+    <string name="terminal_limit">Paling banyak dua terminal terbuka. Tutup satu dulu.</string>
+    <string name="terminal_storage_low">Ruang kosong kurang dari 500 MB, jadi terminal tidak bisa dibuka.</string>
+    <string name="terminal_busy">Lingkungan sedang diatur ulang. Coba lagi sebentar lagi.</string>
+    <string name="terminal_revoked">Lingkungan diatur ulang atau ruang kerja dibersihkan, jadi terminal ditutup.</string>
+    <string name="terminal_exited">Terminal berakhir (kode keluar %1$d).</string>
+    <string name="terminal_closed">Terminal sudah ditutup.</string>
+    <string name="terminal_close">Tutup terminal</string>
+    <string name="terminal_close_title">Tutup terminal ini?</string>
+    <string name="terminal_close_body">Program yang masih berjalan juga akan dihentikan.</string>
+    <string name="terminal_close_confirm">Tutup</string>
+    <string name="terminal_retry">Buka lagi</string>
+    <string name="terminal_stop">Hentikan</string>
+    <string name="terminal_task_running">Mika juga sedang bekerja di ruang kerja ini; perubahan dari kedua sisi bisa saling mengganggu.</string>
+    <string name="terminal_copy_all">Salin semua</string>
+    <string name="terminal_copied">Disalin</string>
 </resources>

@@ -54,8 +54,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -68,6 +71,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wangzan101.mika.chat.ConversationHit
+import com.wangzan101.mika.chat.ConversationSearch
 import com.wangzan101.mika.chat.ConversationSummary
 import com.wangzan101.mika.settings.Prerequisites
 import com.wangzan101.mika.ui.components.GlassBlurSupported
@@ -133,6 +138,14 @@ data class DrawerSections(
     val pinned: List<DrawerConversation> = emptyList(),
 )
 
+/** 搜索拿到的原始命中;显示前再按此刻的置顶、运行、时间换成侧栏里的行。 */
+private data class SearchOutcome(
+    val query: String,
+    val hits: List<ConversationHit>,
+    val searching: Boolean,
+    val truncated: Boolean = false,
+)
+
 /** 当前对话在侧栏里的样子:有没有任务在跑、标题、副标题(在做什么)。 */
 data class CurrentConversation(val id: String?, val running: Boolean, val title: String, val subtitle: String)
 
@@ -161,15 +174,28 @@ fun drawerSections(
         }
     }
     val runningIds = running.mapNotNull { it.id }.toSet()
-    fun entry(s: ConversationSummary): DrawerConversation {
-        val isCurrent = s.id == current.id
-        return DrawerConversation(s.id, ChatCopy.plainTitle(s.title), "", false, isCurrent, canSwitch || isCurrent, timeOf(s.id), pinned = s.pinnedAt != null,
-            site = s.page?.host, branch = s.branchOf != null)
-    }
+    fun entry(s: ConversationSummary): DrawerConversation =
+        drawerEntry(s, current.id, canSwitch, running = s.id in runningIds, time = timeOf(s.id))
     val rest = all.filter { it.id !in runningIds }
     val pinnedRows = rest.filter { it.pinnedAt != null }.sortedByDescending { it.pinnedAt }.map(::entry)
     val recent = rest.asSequence().filter { it.pinnedAt == null }.take(MAX_RECENT).map(::entry).toList()
     return DrawerSections(running, recent, pinnedRows)
+}
+
+/** 一条对话在侧栏里的样子:侧栏列表和搜索结果共用，免得两处规则走岔。 */
+internal fun drawerEntry(
+    s: ConversationSummary,
+    currentId: String?,
+    canSwitch: Boolean,
+    running: Boolean,
+    time: String,
+    subtitle: String = "",
+): DrawerConversation {
+    val isCurrent = s.id == currentId
+    return DrawerConversation(
+        s.id, ChatCopy.plainTitle(s.title), subtitle, running, isCurrent, canSwitch || isCurrent, time,
+        pinned = s.pinnedAt != null, site = s.page?.host, branch = s.branchOf != null,
+    )
 }
 
 /** 对话的时间:今天写时刻,昨天写「昨天」,一周内写星期几,今年写几月几日,更早带年份。 */
@@ -205,10 +231,18 @@ fun ChatDrawer(
     check: Prerequisites.Check,
     sections: DrawerSections,
     canSwitch: Boolean,
+    /** 搜索框里的字;非空时侧栏进入搜索结果,入口区让位给结果。 */
+    query: String = "",
+    onQueryChange: (String) -> Unit = {},
+    /** 当前查询的结果;还没搜完时 [DrawerSearch.searching] 为真。 */
+    search: DrawerSearch? = null,
+    /** 有对话可搜时才显示搜索框。 */
+    canSearch: Boolean = false,
     onNew: () -> Unit,
     onPlans: () -> Unit,
     onMemory: () -> Unit,
     onBrowser: () -> Unit,
+    onFiles: () -> Unit = {},
     onScreens: () -> Unit = {},
     onSettings: () -> Unit,
     onOpen: (DrawerConversation) -> Unit,
@@ -242,11 +276,15 @@ fun ChatDrawer(
                 }
             }
         }
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+        if (canSearch) DrawerSearchField(query, onQueryChange)
+        // 搜索时把几个入口收起来，把高度让给结果;清空后原样回来。搜索框在入口上面，位置不跳。
+        val searchActive = canSearch && query.isNotBlank()
+        if (!searchActive) Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
             NavEntry(MikaIcons.New, stringResource(R.string.chat_new), enabled = canSwitch, onClick = onNew)
             NavEntry(MikaIcons.Clock, stringResource(R.string.drawer_plans), onClick = onPlans)
             NavEntry(MikaIcons.Heart, stringResource(R.string.memory_and_skills), onClick = onMemory)
             NavEntry(MikaIcons.Globe, stringResource(R.string.drawer_browser), onClick = onBrowser)
+            NavEntry(MikaIcons.Paperclip, stringResource(R.string.file_library_title), onClick = onFiles)
             // 和上面几项隔开一点:这是把 Mika 整个停下来,不是换一页
             Box(Modifier.padding(top = 4.dp)) {
                 NavEntry(MikaIcons.Power, stringResource(R.string.quit_title), onClick = onQuit)
@@ -255,38 +293,61 @@ fun ChatDrawer(
         // 侧栏关着时列表只剩末尾那一项;打开时对话插在它前面,列表会按原来那一项停在最底下。最上面一项变了就回到顶上
         val list = rememberLazyListState()
         val first = when {
+            searchActive -> "h-search"
             sections.running.isNotEmpty() -> "h-running"
             sections.pinned.isNotEmpty() -> "h-pinned"
             sections.recent.isNotEmpty() -> "h-recent"
             else -> "end"
         }
         LaunchedEffect(first) { list.scrollToItem(0) }
+        val terms = remember(query) { ConversationSearch.termsOf(query) }
         LazyColumn(Modifier.fillMaxWidth().weight(1f).lazyListScrollbar(list), state = list) {
-            if (sections.running.isNotEmpty()) {
-                // 「进行中」这一段的右边进「后台屏」页:看每个在跑的任务正在用哪个 App、实时画面
-                item("h-running") { RunningLabel(onScreens) }
-                items(sections.running, key = { "r-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
-            }
-            // 换不了对话时的说明放在第一段存着的对话(置顶或最近)上面
-            val busyNote: LazyListScope.() -> Unit = {
+            if (searchActive) {
+                item("h-search") { SectionLabel(stringResource(R.string.drawer_search_results)) }
                 if (!canSwitch) {
-                    item("busy") {
+                    item("search-busy") {
                         Text(
                             stringResource(R.string.drawer_busy), Modifier.padding(start = 24.dp, end = 24.dp, bottom = 6.dp),
                             style = MikaType.Hint, color = c.ink3,
                         )
                     }
                 }
-            }
-            if (sections.pinned.isNotEmpty()) {
-                item("h-pinned") { SectionLabel(stringResource(R.string.drawer_pinned)) }
-                busyNote()
-                items(sections.pinned, key = { "p-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
-            }
-            if (sections.recent.isNotEmpty()) {
-                item("h-recent") { SectionLabel(stringResource(R.string.drawer_recent)) }
-                if (sections.pinned.isEmpty()) busyNote()
-                items(sections.recent, key = { "c-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                // 扫正文期间一直提示;标题命中已经列出来时也提示,表示结果还会补全
+                if (search?.searching != false) item("searching") { SearchHint(stringResource(R.string.drawer_searching)) }
+                items(search?.hits.orEmpty(), key = { "s-${it.id}" }) { ConversationEntry(it, onOpen, onActions, terms) }
+                if (search != null && !search.searching && search.hits.isEmpty()) {
+                    item("search-empty") { SearchEmpty(query) }
+                }
+                if (search?.truncated == true) {
+                    item("search-more") { SearchHint(stringResource(R.string.drawer_search_truncated, ConversationSearch.MAX_HITS)) }
+                }
+            } else {
+                if (sections.running.isNotEmpty()) {
+                    // 「进行中」这一段的右边进「后台屏」页:看每个在跑的任务正在用哪个 App、实时画面
+                    item("h-running") { RunningLabel(onScreens) }
+                    items(sections.running, key = { "r-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                }
+                // 换不了对话时的说明放在第一段存着的对话(置顶或最近)上面
+                val busyNote: LazyListScope.() -> Unit = {
+                    if (!canSwitch) {
+                        item("busy") {
+                            Text(
+                                stringResource(R.string.drawer_busy), Modifier.padding(start = 24.dp, end = 24.dp, bottom = 6.dp),
+                                style = MikaType.Hint, color = c.ink3,
+                            )
+                        }
+                    }
+                }
+                if (sections.pinned.isNotEmpty()) {
+                    item("h-pinned") { SectionLabel(stringResource(R.string.drawer_pinned)) }
+                    busyNote()
+                    items(sections.pinned, key = { "p-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                }
+                if (sections.recent.isNotEmpty()) {
+                    item("h-recent") { SectionLabel(stringResource(R.string.drawer_recent)) }
+                    if (sections.pinned.isEmpty()) busyNote()
+                    items(sections.recent, key = { "c-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                }
             }
             item("end") { Box(Modifier.height(12.dp)) }
         }
@@ -357,7 +418,13 @@ private fun SectionLabel(text: String) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ConversationEntry(item: DrawerConversation, onOpen: (DrawerConversation) -> Unit, onActions: (DrawerConversation, Rect) -> Unit) {
+internal fun ConversationEntry(
+    item: DrawerConversation,
+    onOpen: (DrawerConversation) -> Unit,
+    onActions: (DrawerConversation, Rect) -> Unit,
+    /** 搜索结果里高亮的关键词;普通列表为空。 */
+    terms: List<String> = emptyList(),
+) {
     val c = MikaTheme.colors
     val deletable = item.id != null
     val haptic = LocalHapticFeedback.current
@@ -381,20 +448,21 @@ private fun ConversationEntry(item: DrawerConversation, onOpen: (DrawerConversat
             .alpha(if (item.enabled) 1f else 0.45f)
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {
-        ConversationRowContent(item)
+        ConversationRowContent(item, terms)
     }
 }
 
 /** 一条对话里面的东西:进行中的小圆点、图钉、标题、时间,有副标题时下面一行。侧栏里那一行和长按抬起的那一张都用它。 */
 @Composable
-internal fun ConversationRowContent(item: DrawerConversation) {
+internal fun ConversationRowContent(item: DrawerConversation, terms: List<String> = emptyList()) {
     val c = MikaTheme.colors
+    val title = remember(item.title, terms, c.accent) { highlighted(item.title, terms, c.accent) }
     Column {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             if (item.running) Box(Modifier.size(7.dp).background(c.accent, CircleShape))
             if (item.pinned) Icon(MikaIcons.Pin, stringResource(R.string.drawer_pinned_mark), Modifier.size(14.dp).testTag("conversation-pin"), tint = c.ink3)
             if (item.branch) Icon(MikaIcons.Route, stringResource(R.string.chat_branch_origin), Modifier.size(14.dp).testTag("conversation-branch"), tint = c.ink3)
-            Text(item.title, Modifier.weight(1f, fill = item.site == null), style = ConversationTitle, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, Modifier.weight(1f, fill = item.site == null), style = ConversationTitle, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (item.site != null) {
                 Text(
                     PageAskCopy.WEB, Modifier.background(c.accentSoft, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp).testTag("conversation-web"),
@@ -408,7 +476,8 @@ internal fun ConversationRowContent(item: DrawerConversation) {
         }
         val sub = item.subtitle.ifEmpty { item.site.orEmpty() }
         if (sub.isNotEmpty()) {
-            Text(sub, Modifier.padding(top = 2.dp), style = ConversationTime, color = c.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val styled = remember(sub, terms, c.accent) { highlighted(sub, terms, c.accent) }
+            Text(styled, Modifier.padding(top = 2.dp), style = ConversationTime, color = c.ink3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -490,9 +559,12 @@ fun ChatWithDrawer(
     conversationChanges: Flow<String> = emptyFlow(),
     /** 对话起好的标题;当前对话还没存进列表时(任务刚开始)也能叫出名字。 */
     conversationTitle: (String) -> String? = { null },
+    /** 侧栏搜索用的索引;没有时侧栏不显示搜索框。 */
+    search: ConversationSearch? = null,
     onPlans: () -> Unit,
     onMemory: () -> Unit,
     onBrowser: () -> Unit,
+    onFiles: () -> Unit = {},
     onScreens: () -> Unit = {},
     onSettings: () -> Unit,
     onAbout: () -> Unit = {},
@@ -527,13 +599,27 @@ fun ChatWithDrawer(
         go()
     }
     val open = drawer.targetValue == DrawerValue.Open || drawer.isOpen
+    /** 搜索框里的字和已经拿到的结果;侧栏关掉就清空。 */
+    var query by remember { mutableStateOf("") }
+    var searchOutcome by remember { mutableStateOf<SearchOutcome?>(null) }
+    LaunchedEffect(open, search) {
+        if (!open) {
+            query = ""
+            searchOutcome = null
+            // 正文索引只在侧栏开着时有用,关掉就放掉,长时间使用不会一直占着全部对话的正文
+            search?.clear()
+        }
+    }
     // 对话页上返回(侧滑)先打开侧栏;侧栏开着时再返回才离开 App(退到后台,和桌面返回一样)。
-    // 对话页里面板、画中画等自己的返回在内层,先于这里处理
+    // 搜索时先清掉搜索,再按才离开。对话页里面板、画中画等自己的返回在内层,先于这里处理
     val activity = LocalContext.current.findActivity()
     val context = LocalContext.current
     BackHandler {
-        if (open) activity?.moveTaskToBack(true)
-        else scope.launch { if (reduceMotion) drawer.snapTo(DrawerValue.Open) else drawer.open() }
+        when {
+            query.isNotEmpty() -> query = ""
+            open -> activity?.moveTaskToBack(true)
+            else -> scope.launch { if (reduceMotion) drawer.snapTo(DrawerValue.Open) else drawer.open() }
+        }
     }
     var revision by remember { mutableIntStateOf(0) }
     LaunchedEffect(conversationChanges) { conversationChanges.collect { revision++ } }
@@ -569,6 +655,8 @@ fun ChatWithDrawer(
             renaming = null
             confirming = null
             confirmingQuit = false
+            query = ""
+            searchOutcome = null
             drawer.snapTo(DrawerValue.Closed)
         }
     }
@@ -598,17 +686,58 @@ fun ChatWithDrawer(
                     if (running) ChatCopy.subtitle(last, last?.let(vm::livePlace))?.first.orEmpty() else "",
                 )
                 val canSwitch = vm.canSwitch()
+                // 搜索候选:标题换成侧栏里显示的样子(去掉附件行、网页说明),和行上看到的一致
+                val candidates = remember(all, deleted) {
+                    all.filter { it.id !in deleted }.map { it.copy(title = ChatCopy.plainTitle(it.title)) }
+                }
+                val engine = search
+                LaunchedEffect(open, query, revision, candidates.size, engine) {
+                    val q = query.trim()
+                    if (engine == null || !open || q.isEmpty() || candidates.isEmpty()) {
+                        searchOutcome = null
+                        return@LaunchedEffect
+                    }
+                    // 标题命中不用等正文,先列出来;正文扫完再整体换掉
+                    searchOutcome = SearchOutcome(q, engine.titleMatches(q, candidates), searching = true)
+                    delay(180)
+                    val result = withContext(Dispatchers.IO) { engine.search(q, candidates) }
+                    searchOutcome = SearchOutcome(q, result.hits, searching = false, truncated = result.truncated)
+                }
+                val byId = remember(candidates) { candidates.associateBy { it.id } }
+                val now = System.currentTimeMillis()
+                val runningIds = remember(others, ui.conversationId, running) {
+                    (others + listOfNotNull(ui.conversationId?.takeIf { running })).toSet()
+                }
+                val searchView = searchOutcome?.takeIf { it.query == query.trim() }?.let { outcome ->
+                    DrawerSearch(
+                        outcome.hits.mapNotNull { hit ->
+                            val s = byId[hit.id] ?: return@mapNotNull null
+                            val time = if (s.updatedAt != 0L) conversationTime(s.updatedAt, now) else ""
+                            drawerEntry(
+                                s, ui.conversationId, canSwitch, running = hit.id in runningIds,
+                                time = time, subtitle = hit.snippet.orEmpty(),
+                            )
+                        },
+                        outcome.searching,
+                        outcome.truncated,
+                    )
+                }
                 // 删掉的对话当场不列,不等后台删完
                 val sections = remember(all, current, others, canSwitch, deleted) {
                     drawerSections(all.filter { it.id !in deleted }, current, others.filter { it !in deleted }, vm::runningGoal, canSwitch, System.currentTimeMillis())
                 }
                 ChatDrawer(
                     check, sections, canSwitch,
+                    query = query,
+                    onQueryChange = { query = it },
+                    search = searchView,
+                    canSearch = candidates.isNotEmpty(),
                     onNew = { close { vm.newConversation() } },
                     onPlans = { leave(onPlans) },
                     onMemory = { leave(onMemory) },
                     onSettings = { leave(onSettings) },
                     onBrowser = { leave(onBrowser) },
+                    onFiles = { leave(onFiles) },
                     onScreens = { leave(onScreens) },
                     onAbout = { leave(onAbout) },
                     onQuit = { leave { confirmingQuit = true } },
@@ -640,6 +769,7 @@ fun ChatWithDrawer(
                 item, bounds, progress = { lift.value },
                 onPin = { closeMenu { vm.setPinned(id, !item.pinned) } },
                 onRename = { closeMenu { renaming = item } },
+                onTerminal = { closeMenu { activity?.let { a -> com.wangzan101.mika.ui.terminal.TerminalLauncher.open(a, id, item.title) } } },
                 onDelete = { closeMenu { confirming = item to vm.deleteImpact(id) } },
                 onDismiss = { closeMenu() },
             )

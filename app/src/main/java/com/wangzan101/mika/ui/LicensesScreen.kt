@@ -70,6 +70,7 @@ object Licenses {
         Entry("XZ for Java", "0BSD", "版本 1.10,首次启动时解压自带的运行环境。https://tukaani.org/xz/java.html"),
         Entry("ZXing", "Apache-2.0", "版本 3.5.3,在本机生成微信绑定二维码。https://github.com/zxing/zxing"),
         Entry("commonmark-java", "BSD-2-Clause", "版本 0.30.1(含表格、删除线扩展),把回答里的 Markdown 解析成结构后显示。Copyright (c) 2015, Atlassian Pty Ltd. https://github.com/commonmark/commonmark-java"),
+        Entry("xterm.js", "MIT", "版本 5.5.0(及 @xterm/addon-fit 0.10.0),用户终端页的终端仿真器。https://github.com/xtermjs/xterm.js"),
     )
 }
 

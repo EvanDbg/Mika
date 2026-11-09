@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">Japonés</string>
     <string name="speech_asr_language_yue">Cantonés</string>
     <string name="speech_asr_language_ko">Coreano</string>
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_open">Terminal</string>
+    <string name="terminal_open_action">Abrir terminal</string>
+    <string name="terminal_network_on">En línea</string>
+    <string name="terminal_network_off">Sin conexión</string>
+    <string name="terminal_preparing">Preparando el entorno…</string>
+    <string name="terminal_unsupported">Este dispositivo no admite la terminal (se requiere arm64).</string>
+    <string name="terminal_unavailable">El entorno aún no está listo. Inténtalo de nuevo en un momento.</string>
+    <string name="terminal_limit">Solo puede haber dos terminales abiertas. Cierra una primero.</string>
+    <string name="terminal_storage_low">Quedan menos de 500 MB libres, así que la terminal no puede abrirse.</string>
+    <string name="terminal_busy">El entorno se está restableciendo. Inténtalo de nuevo en un momento.</string>
+    <string name="terminal_revoked">El entorno se restableció o el espacio de trabajo se borró, así que la terminal se cerró.</string>
+    <string name="terminal_exited">La terminal terminó (código de salida %1$d).</string>
+    <string name="terminal_closed">La terminal está cerrada.</string>
+    <string name="terminal_close">Cerrar terminal</string>
+    <string name="terminal_close_title">¿Cerrar esta terminal?</string>
+    <string name="terminal_close_body">Los programas que sigan en ejecución también se detendrán.</string>
+    <string name="terminal_close_confirm">Cerrar</string>
+    <string name="terminal_retry">Abrir de nuevo</string>
+    <string name="terminal_stop">Detener</string>
+    <string name="terminal_task_running">Mika también está trabajando en este espacio. Los cambios de ambos lados pueden interferir.</string>
+    <string name="terminal_copy_all">Copiar todo</string>
+    <string name="terminal_copied">Copiado</string>
 </resources>

@@ -16,7 +16,7 @@ public class PointFocusEditorActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         EditText target = new TouchConsumingEditor(this);
         target.setText("Target original");
-        target.setLongClickable(false);
+        target.setLongClickable(true);
         root.addView(target);
         EditText focused = new EditText(this);
         focused.setText("Focused original");

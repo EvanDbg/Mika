@@ -49,7 +49,11 @@ class BridgeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = Store(Path(self.tmp.name) / "state.db")
         self.api, self.sent = FakeApi(), []
-        self.bridge = Bridge(self.api, self.store, lambda *args: self.sent.append(args), ["ou_owner"])
+        self.bridge = Bridge(self.api, self.store, self.send, ["ou_owner"])
+
+    def send(self, *args):
+        self.sent.append(args)
+        return {"bot_" + str(len(self.sent)): int(time.time() * 1000) - 1}
 
     def tearDown(self):
         self.store.db.close()
@@ -135,11 +139,6 @@ class BridgeTests(unittest.TestCase):
         self.store.update(peer, task_id="task_old")
         self.api.status.update(task_id="task_old", status="waiting_for_answer", question="Old question?")
 
-        def send(*message):
-            self.sent.append(message)
-            return ["bot_" + str(len(self.sent))]
-
-        self.bridge.send = send
         self.bridge.poll_once()
         self.store.update(peer, task_id="task_1", notice="")
         self.api.status.update(task_id="task_1", question="New question?")
@@ -161,6 +160,26 @@ class BridgeTests(unittest.TestCase):
         self.deliver("/answer Shanghai", "om_4")
         self.assertEqual(self.api.writes[-1], ("answer", "Shanghai"))
 
+    def test_queued_unquoted_answers_cannot_answer_a_later_question(self):
+        self.deliver()
+        now = int(time.time())
+        self.api.status.update(status="waiting_for_answer", question="Departure city?")
+        with patch("mika_feishu.bridge.time.time", return_value=now):
+            self.bridge.poll_once()
+        with patch("mika_feishu.bridge.time.time", return_value=now + 1):
+            self.assertTrue(self.bridge.receive(event("plain", "Shanghai")))
+            self.assertTrue(self.bridge.receive(event("command", "/answer Shanghai")))
+
+        self.api.status.update(question="Destination city?")
+        with patch("mika_feishu.bridge.time.time", return_value=now + 2):
+            self.bridge.poll_once()
+            self.assertTrue(self.bridge.work_once())
+            self.assertTrue(self.bridge.work_once())
+        self.assertEqual(self.api.writes, [("start", "查询天气", None)])
+        with patch("mika_feishu.bridge.time.time", return_value=now + 3):
+            self.deliver("/answer Beijing", "fresh")
+        self.assertEqual(self.api.writes[-1], ("answer", "Beijing"))
+
     def test_terminal_notifications_sent_once_and_resume_same_conversation(self):
         self.deliver()
         self.api.status.update(status="done", answer="今天晴天")
@@ -170,6 +189,21 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(len(self.sent), count)
         self.deliver("明天呢", "om_2")
         self.assertEqual(self.api.writes[-1], ("start", "明天呢", "mcp-test"))
+
+    def test_old_poll_failure_does_not_mark_replacement_task_uncertain(self):
+        peer = "oc_chat:ou_owner"
+        self.store.update(peer, task_id="task_old")
+
+        def old_task_disappears(task_id):
+            self.assertEqual(task_id, "task_old")
+            self.store.update(peer, task_id="task_new")
+            raise ApiError("http_404", status=404)
+
+        with patch.object(self.api, "task", side_effect=old_task_disappears):
+            self.bridge.poll_once()
+        self.assertEqual(self.store.session(peer)["uncertain"], 0)
+        self.assertEqual(self.store.session(peer)["notice"], "")
+        self.assertEqual(self.sent, [])
 
     def test_cancel_ack_is_not_reported_as_cancelled(self):
         self.deliver()

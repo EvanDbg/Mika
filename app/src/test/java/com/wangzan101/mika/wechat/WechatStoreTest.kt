@@ -316,6 +316,40 @@ class WechatStoreTest {
         assertFalse(reopened.journal("acknowledged", peer, "不应重放"))
     }
 
+    @Test fun revocationRemovesTheGrantWhenItsReplacementCannotBeWritten() {
+        val dir = tmp.newFolder()
+        val store = boundStore(dir)
+        val peer = store.peer("owner")
+        store.setUnlockAllowed(true)
+        blockWrites(dir, "unlock.json")
+
+        store.setUnlockAllowed(false)
+
+        assertFalse(store.allowUnlock.value)
+        assertFalse(store.canUnlock(peer))
+        assertFalse(WechatStore(dir, cipher).canUnlock(peer))
+    }
+
+    @Test fun failedRevocationBlocksUnlockWithoutReportingADurableChange() {
+        val dir = tmp.newFolder()
+        val store = boundStore(dir)
+        val peer = store.peer("owner")
+        store.setUnlockAllowed(true)
+        val grantFile = object : File(dir, "unlock.json") {
+            override fun delete(): Boolean = false
+        }
+        val reopened = WechatStore(dir, cipher, grantFile)
+        val blocker = blockWrites(dir, "unlock.json")
+
+        assertThrows(IOException::class.java) { reopened.setUnlockAllowed(false) }
+
+        assertTrue(reopened.allowUnlock.value)
+        assertFalse(reopened.canUnlock(peer))
+        assertTrue(blocker.delete())
+        reopened.setUnlockAllowed(false)
+        assertFalse(WechatStore(dir, cipher).canUnlock(peer))
+    }
+
     @Test fun revocationReplacesARegularGrantThatCannotBeDeletedAndSurvivesRestart() {
         val dir = tmp.newFolder()
         val store = boundStore(dir)

@@ -19,7 +19,10 @@ object ChatCopy {
 
     val EMPTY_PROMPT get() = tr(R.string.chat_empty_prompt)
 
-    /** 空对话里的示例;点一下填进输入框,用户改好了再发。[kind] 决定配哪个线条图标。 */
+    /**
+     * 内置推荐任务的原文。只在本机还没有保存过推荐任务时用来初始化一次;
+     * 标题和提示词都用这一句,之后用户在设置里改,不会因为换语言或升级被加回来。
+     */
     enum class ExampleKind { App, Web, File, Schedule, Device }
     data class Example(val kind: ExampleKind, val text: String)
 
@@ -29,6 +32,8 @@ object ChatCopy {
         Example(ExampleKind.App, tr(R.string.chat_example_group_summary)),
         Example(ExampleKind.Device, tr(R.string.chat_example_alarms)),
     )
+
+    fun recommendationSeeds(): List<Pair<String, String>> = examples.map { it.text to it.text }
 
     /** 对话页顶栏的标题:固定是 App 名;副标题说此刻在做什么。 */
     const val APP_TITLE = "Mika"

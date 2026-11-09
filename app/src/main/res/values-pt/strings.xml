@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">Japonês</string>
     <string name="speech_asr_language_yue">Cantonês</string>
     <string name="speech_asr_language_ko">Coreano</string>
+    <string name="terminal_title">Terminal</string>
+    <string name="terminal_open">Terminal</string>
+    <string name="terminal_open_action">Abrir terminal</string>
+    <string name="terminal_network_on">Online</string>
+    <string name="terminal_network_off">Offline</string>
+    <string name="terminal_preparing">Preparando o ambiente…</string>
+    <string name="terminal_unsupported">Este dispositivo não suporta o terminal (requer arm64).</string>
+    <string name="terminal_unavailable">O ambiente ainda não está pronto. Tente novamente em instantes.</string>
+    <string name="terminal_limit">Só pode haver dois terminais abertos. Feche um primeiro.</string>
+    <string name="terminal_storage_low">Menos de 500 MB livres, então o terminal não pode abrir.</string>
+    <string name="terminal_busy">O ambiente está sendo redefinido. Tente novamente em instantes.</string>
+    <string name="terminal_revoked">O ambiente foi redefinido ou o espaço de trabalho foi limpo, então o terminal foi fechado.</string>
+    <string name="terminal_exited">O terminal terminou (código de saída %1$d).</string>
+    <string name="terminal_closed">O terminal está fechado.</string>
+    <string name="terminal_close">Fechar terminal</string>
+    <string name="terminal_close_title">Fechar este terminal?</string>
+    <string name="terminal_close_body">Os programas ainda em execução também serão encerrados.</string>
+    <string name="terminal_close_confirm">Fechar</string>
+    <string name="terminal_retry">Abrir novamente</string>
+    <string name="terminal_stop">Parar</string>
+    <string name="terminal_task_running">Mika também está trabalhando neste espaço. Alterações dos dois lados podem interferir.</string>
+    <string name="terminal_copy_all">Copiar tudo</string>
+    <string name="terminal_copied">Copiado</string>
 </resources>

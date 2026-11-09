@@ -9,6 +9,8 @@ import com.wangzan101.mika.core.tool.LegacyNames
 import com.wangzan101.mika.chat.BranchCopyResult
 import com.wangzan101.mika.chat.BranchOrigin
 import com.wangzan101.mika.chat.BranchWorkspace
+import com.wangzan101.mika.chat.RetryAttachmentResult
+import com.wangzan101.mika.chat.RetryAttachmentStatus
 import com.wangzan101.mika.chat.ConversationStore
 import com.wangzan101.mika.chat.ConversationSummary
 import com.wangzan101.mika.chat.CurrentChat
@@ -251,7 +253,14 @@ interface LearningActions {
  * 选好、等着随下一句话发出去的附件:内容地址([uri])、名字和大小;发送时才复制进对话工作区。
  * [photo] 的在输入框上方是缩略图,其余是文件小卡片。
  */
-data class PendingAttachment(val uri: String, val name: String, val size: Long, val photo: Boolean = AttachmentMessage.isPhoto(name))
+data class PendingAttachment(
+    val uri: String,
+    val name: String,
+    val size: Long,
+    val photo: Boolean = AttachmentMessage.isPhoto(name),
+    val workspaceConversationId: String? = null,
+    val workspacePath: String? = null,
+)
 
 enum class PipMode { Running, NeedsYou, Done }
 
@@ -323,7 +332,7 @@ private data class ComposerDraft(
     val rejected: List<String> = emptyList(),
     val overLimit: Int = 0,
 ) {
-    val hasContent: Boolean get() = input.isNotEmpty() || attachments.isNotEmpty() || quote != null || importing
+    val hasContent: Boolean get() = input.isNotEmpty() || attachments.isNotEmpty() || quote != null || importing || rejected.isNotEmpty()
     fun applyTo(ui: ChatUi) = ui.copy(input = input, attachments = attachments, quote = quote,
         followUpMode = followUpMode, sharedDraft = sharedDraft, importing = importing,
         rejectedAttachments = rejected, overLimit = overLimit)
@@ -461,6 +470,20 @@ class ChatViewModel(
 
     private val drafts = MutableStateFlow<Map<String, ComposerDraft>>(emptyMap())
     private var draftStateChanged = false
+    private val libraryCopies = mutableMapOf<String, () -> Unit>()
+    private val librarySources = mutableMapOf<String, LibraryFileHandle>()
+    private val libraryImports = mutableMapOf<String, Int>()
+
+    /** 只回收本进程登记的副本；导入中或任何草稿引用中的 URI 继续保留。 */
+    private fun releaseUnusedLibraryCopies() {
+        val referenced = _ui.value.attachments.map { it.uri }.toSet() +
+            drafts.value.values.flatMap { it.attachments.map(PendingAttachment::uri) } + libraryImports.keys
+        val unused = libraryCopies.keys.filter { it !in referenced }
+        unused.forEach { uri ->
+            librarySources.remove(uri)
+            libraryCopies.remove(uri)?.let { runCatching { it() } }
+        }
+    }
     /** 每次有分享放进当前会话就加一;异步操作靠它分辨草稿是被新分享换掉了,还是用户只改了文字。 */
     private var sharedDraftSerial = 0L
 
@@ -818,6 +841,35 @@ class ChatViewModel(
         }
     }
 
+    /** 为当前新会话分配草稿编号；调用方在主线程调用。 */
+    fun libraryTargetConversation(): String = draftConversation()
+
+    /** 合并文件库副本到指定会话的草稿，不切换会话或覆盖已有内容。调用方在主线程调用。 */
+    fun addLibraryAttachment(conversationId: String, item: PendingAttachment, source: LibraryFileHandle? = null,
+                             release: () -> Unit = {}): LibraryAttachmentResult {
+        if (conversationId.isBlank() || conversationId in _deleted.value || conversationId in deleting || !sandboxReady.value)
+            return LibraryAttachmentResult.Unavailable
+        val current = _ui.value.takeIf { it.conversationId == conversationId }
+        val draft = current?.draft() ?: drafts.value[conversationId] ?: ComposerDraft()
+        if ((current != null && !canAttach(current)) || draft.importing ||
+            (current == null && conversationId in activeConversations.value)) return LibraryAttachmentResult.Unavailable
+        val duplicate = source != null && draft.attachments.any { librarySources[it.uri] == source }
+        if (duplicate) {
+            val referenced = item.uri in libraryImports || item.uri in libraryCopies ||
+                _ui.value.attachments.any { it.uri == item.uri } ||
+                drafts.value.values.any { saved -> saved.attachments.any { it.uri == item.uri } }
+            if (!referenced) runCatching { release() }
+            return LibraryAttachmentResult.Added
+        }
+        val (items, dropped) = AttachTray.add(draft.attachments, listOf(item))
+        if (dropped != 0) return LibraryAttachmentResult.Full
+        draftStateChanged = true
+        libraryCopies.putIfAbsent(item.uri, release)
+        if (source != null) librarySources.putIfAbsent(item.uri, source)
+        updateDraft(conversationId) { it.copy(attachments = items, rejected = emptyList(), overLimit = 0) }
+        return LibraryAttachmentResult.Added
+    }
+
     /** 面板里最近的照片点一下:选上或取消;已经满了返回 false。 */
     fun toggleAttachment(item: PendingAttachment): Boolean {
         val ui = _ui.value
@@ -850,6 +902,7 @@ class ChatViewModel(
             clearSharedImage(draft)
         }
         _ui.update { ui -> ui.copy(attachments = ui.attachments.filterNot { it.uri == uri }) }
+        releaseUnusedLibraryCopies()
     }
 
     fun dismissRejected() = _ui.update { it.copy(rejectedAttachments = emptyList(), overLimit = 0) }
@@ -955,19 +1008,50 @@ class ChatViewModel(
         val serialBefore = sharedDraftSerial
         val importingImage = submitted.sharedDraft?.image?.fileName
         sharedDrafts?.setImporting(importingImage, true)
+        val importedUris = items.map { it.uri }.distinct()
+        importedUris.forEach { uri -> libraryImports[uri] = (libraryImports[uri] ?: 0) + 1 }
         _ui.update { it.copy(importing = true, rejectedAttachments = emptyList(), overLimit = 0) }
         scope.launch {
             val r = try {
-                importAttachments(id, items.map { it.uri })
+                val workspaceItems = items.filter { it.workspacePath != null }
+                val checks = if (workspaceItems.all { it.workspaceConversationId == id }) {
+                    branchWorkspace?.checkInboxAttachments(id, workspaceItems.map { it.workspacePath!! }).orEmpty()
+                } else emptyList()
+                if (workspaceItems.isEmpty()) {
+                    importAttachments(id, items.map { it.uri })
+                } else if (checks.size != workspaceItems.size || checks.any { it.status != RetryAttachmentStatus.COPIED || it.sizeBytes == null }) {
+                    ImportResult(emptyList(), workspaceItems.map { it.name })
+                } else {
+                    var checked = 0
+                    val added = mutableListOf<Pair<String, Long>>()
+                    val rejected = mutableListOf<String>()
+                    for (item in items) {
+                        if (item.workspacePath != null) {
+                            val result = checks[checked++]
+                            added += result.path to result.sizeBytes!!
+                        } else {
+                            val result = importAttachments(id, listOf(item.uri))
+                            added += result.added
+                            rejected += result.rejected
+                        }
+                    }
+                    ImportResult(added, rejected)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 ImportResult(emptyList(), items.map { it.name })
             } finally {
                 sharedDrafts?.setImporting(importingImage, false)
+                importedUris.forEach { uri ->
+                    val count = (libraryImports[uri] ?: 1) - 1
+                    if (count == 0) libraryImports.remove(uri) else libraryImports[uri] = count
+                }
+                releaseUnusedLibraryCopies()
             }
             val goal = withAttachments(text, r.added)
             updateDraft(id) { it.copy(importing = false, rejected = r.rejected) }
+            if (items.any { it.workspacePath != null } && r.added.isEmpty() && r.rejected.isNotEmpty()) return@launch
             val now = _ui.value
             if (goal.isEmpty() || now.conversationId != id || id in _deleted.value) return@launch
             val currentAttachments = now.attachments
@@ -988,6 +1072,7 @@ class ChatViewModel(
                         followUpMode = if (keepNewerAttachments && currentAttachments.isNotEmpty() && it.composer != ComposerMode.Idle) FollowUpMode.Queue else it.followUpMode,
                     )
                 }
+                releaseUnusedLibraryCopies()
             }
         }
         return true
@@ -1072,6 +1157,7 @@ class ChatViewModel(
             if (it.followUpMode == mode) it else it.copy(followUpMode = mode,
                 attachments = if (mode == FollowUpMode.Steer) emptyList() else it.attachments)
         }
+        releaseUnusedLibraryCopies()
     }
 
     /** 任务在跑时把这句话先写进这个对话的持久 FIFO;写失败返回 false,输入框保留原话。 */
@@ -1367,7 +1453,7 @@ class ChatViewModel(
             if (!hasUnsentDraft) return applySharedDraftToCurrent(prepared)
             val id = draftConversation()
             val pending = prepared.copy(conversationId = id)
-            cancelPendingSharedDraft()
+            // Replacing the pending draft and cleaning up its old image happen after the new draft is saved.
             if ((pending.image != null && sharedAttachments(pending).size != 1) || !drafts.savePending(pending)) {
                 drafts.discard(pending.image)
                 return false
@@ -1442,6 +1528,7 @@ class ChatViewModel(
                 pendingSharedDraft = null,
             )
         }
+        releaseUnusedLibraryCopies()
         markCurrent(CurrentChat.Open(id))
         return true
     }
@@ -1565,16 +1652,38 @@ class ChatViewModel(
      * [canRetryAt] 不成立(同 [branchFrom],另加这一轮用户的话是空的)或复制失败时为 null。
      */
     suspend fun branchBefore(turn: Int): BranchRetry? {
-        val raw = _ui.value.exchanges.getOrNull(turn)?.goal
-        val targetId = branchInto(turn, afterTurn = false, allowed = ::canRetryAt) ?: return null
-        return BranchRetry(targetId, retryText(raw.orEmpty()), needsReattach(raw.orEmpty()))
+        val exchanges = _ui.value.exchanges
+        val raw = exchanges.getOrNull(turn)?.goal.orEmpty()
+        fun attachmentPaths(text: String) = AttachmentLines.parse(QuoteMessage.words(AttachedPage.words(text))).files.map { it.first }
+        val paths = attachmentPaths(raw).distinct()
+        val historyPaths = exchanges.take(turn.coerceAtLeast(0)).flatMap { attachmentPaths(it.goal) }.filterNot { it in paths }.distinct()
+        var copied = emptyList<RetryAttachmentResult>()
+        val targetId = branchInto(turn, afterTurn = false, allowed = ::canRetryAt, retryPaths = paths + historyPaths) { copied = it } ?: return null
+        val restored = copied.take(paths.size).filter { it.status == RetryAttachmentStatus.COPIED && it.sizeBytes != null }
+        val attachments = restored.map {
+            PendingAttachment("workspace:$targetId:${it.path}", it.path.substringAfterLast('/'), it.sizeBytes!!,
+                workspaceConversationId = targetId, workspacePath = it.path)
+        }
+        val (accepted, _) = AttachTray.add(emptyList(), attachments)
+        val failures = copied.filter { it.status != RetryAttachmentStatus.COPIED || it.sizeBytes == null } +
+            restored.drop(accepted.size).map { it.copy(status = RetryAttachmentStatus.OVER_LIMIT) }
+        val prefill = retryText(raw)
+        updateDraft(targetId) {
+            it.copy(input = prefill, attachments = accepted,
+                rejected = if (_ui.value.conversationId == targetId) emptyList() else failures.map { failure -> failure.path.substringAfterLast('/') })
+        }
+        val screen = UserScreenMessage.parse(AttachmentMessage.parse(QuoteMessage.words(AttachedPage.words(raw))).words).hasScreen
+        return BranchRetry(targetId, prefill, screen || failures.isNotEmpty(), failures, screenNeedsReattach = screen)
     }
 
     /**
      * [branchFrom] 和 [branchBefore] 共用:[allowed] 成立时新建对话,复制到第 [turn] 轮([afterTurn] 时含这一轮,否则只到它之前)、
      * 标题加后缀、写分支来源,再复制工作区 inbox/,然后切到新对话。返回新对话编号;不允许或复制失败为 null,不切走。
      */
-    private suspend fun branchInto(turn: Int, afterTurn: Boolean, allowed: (List<Exchange>, Int, Boolean) -> Boolean): String? {
+    private suspend fun branchInto(
+        turn: Int, afterTurn: Boolean, allowed: (List<Exchange>, Int, Boolean) -> Boolean,
+        retryPaths: List<String>? = null, onRetryCopied: (List<RetryAttachmentResult>) -> Unit = {},
+    ): String? {
         refreshParallel()
         _branchCopy.value = null
         val ui = _ui.value
@@ -1589,8 +1698,16 @@ class ChatViewModel(
             else store.branchBefore(sourceId, targetId, turn, branchTitle(base), origin)
         }
         if (!created) return null
-        _branchCopy.value = try { branchWorkspace?.copyInbox(sourceId, targetId) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
-        openConversation(targetId)
+        if (!retryPaths.isNullOrEmpty()) {
+            val failed = retryPaths.map { RetryAttachmentResult(it, RetryAttachmentStatus.FAILED) }
+            val results = try {
+                branchWorkspace?.copyInboxForRetry(sourceId, targetId, retryPaths) ?: failed
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { failed }
+            onRetryCopied(if (results.map { it.path } == retryPaths) results else failed)
+        } else {
+            _branchCopy.value = try { branchWorkspace?.copyInbox(sourceId, targetId) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+        }
+        if (_ui.value.conversationId == sourceId && !branchBlocked()) openConversation(targetId)
         return targetId
     }
 
@@ -1607,6 +1724,7 @@ class ChatViewModel(
         sharedDrafts?.clear(id)
         _deleted.update { it + id }
         if (id == _ui.value.conversationId) startOver(id) else unpark(id)
+        releaseUnusedLibraryCopies()
         scope.launch {
             try { removeConversation(id) } catch (e: CancellationException) { throw e } catch (e: Exception) { } finally { deleting -= id }
         }

@@ -31,6 +31,7 @@ import com.wangzan101.mika.core.agent.QuoteMessage
 import com.wangzan101.mika.core.agent.TaskState
 import com.wangzan101.mika.core.agent.Turn
 import com.wangzan101.mika.settings.Prerequisites
+import com.wangzan101.mika.settings.RecommendedTaskStore
 import com.wangzan101.mika.takeover.Takeover
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +58,9 @@ class ChatDeleteAndSelectTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val store = ConversationStore(File(context.cacheDir, "chat-delete-test-" + UUID.randomUUID()))
+    private val recommendations = RecommendedTaskStore(File(context.cacheDir, "recommendations-" + UUID.randomUUID())).also {
+        it.ensureLoaded { emptyList() }
+    }
     private val removed = mutableListOf<String>()
     private val started = mutableListOf<String>()
 
@@ -91,7 +95,7 @@ class ChatDeleteAndSelectTest {
                 onPlans = {}, onMemory = {}, onBrowser = {}, onSettings = {}, reopen = drawerOpen,
             ) { open ->
                 ChatScreen(vm, Prerequisites.Check(emptyList()), MutableStateFlow(null), MutableStateFlow(false), reduceMotion = true,
-                    onOpenDrawer = open, openSettings = {})
+                    onOpenDrawer = open, openSettings = {}, recommendations = recommendations)
             }
         }
         compose.waitForIdle()
@@ -148,7 +152,7 @@ class ChatDeleteAndSelectTest {
             val model = androidx.compose.runtime.remember { vm() }
             current = model
             ChatScreen(model, Prerequisites.Check(emptyList()), MutableStateFlow(null), MutableStateFlow(false),
-                reduceMotion = true, onOpenDrawer = {}, openSettings = {})
+                reduceMotion = true, onOpenDrawer = {}, openSettings = {}, recommendations = recommendations)
         }
         compose.runOnIdle { current!!.openConversation("a") }
         compose.onNodeWithTag("composer-field").performTextReplacement("A preserved")

@@ -176,7 +176,6 @@ class MainActivity : ComponentActivity() {
     private fun receiveShare(intent: Intent, inCurrentConversation: Boolean) {
         if (intent.action != Intent.ACTION_SEND) return
         shareJob?.cancel()
-        (application as MikaApp).chat.cancelPendingSharedDraft()
         val type = intent.type.orEmpty()
         val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
         if (text.length > SharedDraftStore.MAX_TEXT_CHARS) {
@@ -362,6 +361,8 @@ private fun MikaRoot(
     onTeachOpened: () -> Unit,
 ) {
     val nav = rememberNavStack()
+    var filesFromDrawer by rememberSaveable { mutableStateOf(false) }
+    var filesConversation by rememberSaveable { mutableStateOf<String?>(null) }
     // 从设置页「重新配对」进来时先回到配对一步
     var setupRepair by rememberSaveable { mutableStateOf(false) }
     // 首次上手正在走哪一步;为空时不在上手流程里。配置模型页从哪儿来就回哪儿去
@@ -475,10 +476,12 @@ private fun MikaRoot(
                 conversations = { ConversationStore.shared(context).list() },
                 conversationChanges = ConversationStore.shared(context).changes,
                 conversationTitle = { ConversationStore.shared(context).title(it) },
+                search = ConversationStore.shared(context).search,
                 onPlans = { nav.pushFromDrawer(Route.Plans) },
                 onMemory = { nav.pushFromDrawer(Route.Memory) },
                 onSettings = { nav.pushFromDrawer(Route.Settings) },
                 onBrowser = { nav.pushFromDrawer(Route.Browser) },
+                onFiles = { filesFromDrawer = true; filesConversation = app.chat.ui.value.conversationId; nav.pushFromDrawer(Route.Files) },
                 onScreens = { nav.pushFromDrawer(Route.Screens) },
                 onAbout = { nav.pushFromDrawer(Route.About) },
                 updateAvailable = AboutCopy.drawerDot(updateState),
@@ -497,6 +500,7 @@ private fun MikaRoot(
                             webOpen = app.tasks.webScreenOpen,
                             reduceMotion = MikaTheme.reduceMotion,
                             onOpenDrawer = openDrawer,
+                            onOpenFiles = { filesFromDrawer = false; filesConversation = app.chat.ui.value.conversationId; nav.push(Route.Files) },
                             openSettings = { nav.push(Route.Settings) },
                             openRun = { runId = it; nav.push(Route.Run) },
                             phoneSetupNeeded = phoneSetupNeeded && status.builtinShell != BuiltinShellStatus.Running,
@@ -547,7 +551,7 @@ private fun MikaRoot(
                 mcpServers = app.mcpServers)
         }
         Route.Models -> ModelsScreen(store, onBack = back, onOpenSpeech = { nav.push(Route.SpeechModel) }, onOpenUsage = { nav.push(Route.Usage) })
-        Route.Usage -> UsageScreen(app.usage, store.providers, onBack = back)
+        Route.Usage -> UsageScreen(app.usage, store, onBack = back, onOpenUrl = { openInBrowser(context, it) })
         Route.SpeechModel -> SpeechModelScreen(store, onBack = back)
         Route.About -> AboutScreen(
             versionName = BuildConfig.VERSION_NAME, build = BuildConfig.GIT_HASH, beta = BuildConfig.BETA,
@@ -572,6 +576,12 @@ private fun MikaRoot(
         )
         Route.License -> LicensesScreen(onBack = back)
         Route.Browser -> BrowserScreen(remember { UserBrowser.of(context) }, onBack = back)
+        Route.Files -> FileLibraryScreen(app.chat, filesConversation, filesFromDrawer, onBack = back, onAdded = { id ->
+            app.chat.openConversation(id)
+            val opened = app.chat.ui.value.conversationId == id
+            if (opened) nav.reset()
+            opened
+        })
         Route.Memory -> {
             val registry = remember { WebSites.registry(context) }
             val sites by registry.entries.collectAsState()

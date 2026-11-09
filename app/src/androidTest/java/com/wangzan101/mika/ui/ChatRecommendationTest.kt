@@ -13,6 +13,7 @@ import com.wangzan101.mika.ChineseUi
 import com.wangzan101.mika.chat.ConversationStore
 import com.wangzan101.mika.core.agent.TaskState
 import com.wangzan101.mika.settings.Prerequisites
+import com.wangzan101.mika.settings.RecommendedTaskStore
 import com.wangzan101.mika.takeover.Takeover
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,8 @@ class ChatRecommendationTest {
     private fun show() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = ConversationStore(File(context.cacheDir, "chat-recommendation-test-" + UUID.randomUUID()))
+        val recommendations = RecommendedTaskStore(File(context.cacheDir, "recommendations-" + UUID.randomUUID()))
+        recommendations.ensureLoaded { ChatCopy.recommendationSeeds() }
         val vm = ChatViewModel(
             CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             MutableStateFlow(TaskState.Idle), MutableStateFlow(Takeover.Stage.None), actions, store,
@@ -54,7 +57,7 @@ class ChatRecommendationTest {
         compose.setContent {
             ChatScreen(
                 vm, Prerequisites.Check(emptyList()), MutableStateFlow<Bitmap?>(null), MutableStateFlow(false),
-                reduceMotion = true, onOpenDrawer = {}, openSettings = {},
+                reduceMotion = true, onOpenDrawer = {}, openSettings = {}, recommendations = recommendations,
             )
         }
         compose.waitForIdle()

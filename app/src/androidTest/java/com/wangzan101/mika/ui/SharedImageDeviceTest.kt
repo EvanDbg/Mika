@@ -135,6 +135,11 @@ class SharedImageDeviceTest {
             assertEquals(firstText, app.chat.ui.value.input)
             assertEquals(secondText, app.chat.ui.value.pendingSharedDraft?.text)
 
+            val missingImage = Intent(Intent.ACTION_SEND).apply { type = "image/png" }
+            scenario.onActivity { instrumentation.callActivityOnNewIntent(it, missingImage) }
+            assertEquals(secondText, app.chat.ui.value.pendingSharedDraft?.text)
+            assertEquals(secondText, app.sharedDrafts.readPending()?.text)
+
             scenario.onActivity { app.chat.confirmPendingSharedDraft() }
             instrumentation.waitForIdleSync()
             assertEquals(conversationId, app.chat.ui.value.conversationId)

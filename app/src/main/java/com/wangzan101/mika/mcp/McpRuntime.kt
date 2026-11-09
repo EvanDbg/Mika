@@ -108,6 +108,13 @@ class McpRuntime(
         apply()
     }
 
+    /** 换监听端口:存下、按新端口重写电脑上跑的脚本;有一种连接开着就重起服务按新端口重绑并重发连接信息。 */
+    fun setPort(port: Int) {
+        settings.setPort(port)
+        writeUsbScript()
+        apply()
+    }
+
     /** 开关变了:还有一种开着就让服务按新的开关重新监听,都关了就停服务。 */
     private fun apply() {
         if (active) ensureRunning() else {
@@ -136,7 +143,8 @@ class McpRuntime(
     @Synchronized internal fun sync(): Boolean {
         if (com.wangzan101.mika.settings.FeatureFlags.get(context).quitRequested()) return false
         val want = listen()
-        if (host != null && hostListen != want) stopListener()
+        // 端口改了也要重绑(RemoteHost 绑精确端口,boundPort 就是实际监听的口)
+        if (host != null && (hostListen != want || host!!.boundPort != settings.port)) stopListener()
         if (want == McpModes.Listen.Off) _state.value = McpServerState.Off
         val ok = want != McpModes.Listen.Off && (host != null || startServer(want))
         if (ok && usb.enabled.value) runCatching { usb.publish(host!!.boundPort) }.onFailure { Log.w(TAG, "cannot write USB connection info", it) }

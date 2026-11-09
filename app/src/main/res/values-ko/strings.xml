@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">일본어</string>
     <string name="speech_asr_language_yue">광둥어</string>
     <string name="speech_asr_language_ko">한국어</string>
+    <string name="terminal_title">터미널</string>
+    <string name="terminal_open">터미널</string>
+    <string name="terminal_open_action">터미널 열기</string>
+    <string name="terminal_network_on">온라인</string>
+    <string name="terminal_network_off">오프라인</string>
+    <string name="terminal_preparing">환경을 준비하는 중…</string>
+    <string name="terminal_unsupported">이 기기는 터미널을 지원하지 않습니다(arm64 필요).</string>
+    <string name="terminal_unavailable">환경이 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.</string>
+    <string name="terminal_limit">터미널은 동시에 두 개까지 열 수 있습니다. 하나를 먼저 닫으세요.</string>
+    <string name="terminal_storage_low">여유 공간이 500MB 미만이라 터미널을 열 수 없습니다.</string>
+    <string name="terminal_busy">환경을 재설정하는 중입니다. 잠시 후 다시 시도하세요.</string>
+    <string name="terminal_revoked">환경이 재설정되었거나 작업 공간이 지워져 터미널이 닫혔습니다.</string>
+    <string name="terminal_exited">터미널이 종료되었습니다(종료 코드 %1$d).</string>
+    <string name="terminal_closed">터미널이 닫혀 있습니다.</string>
+    <string name="terminal_close">터미널 닫기</string>
+    <string name="terminal_close_title">이 터미널을 닫을까요?</string>
+    <string name="terminal_close_body">실행 중인 프로그램도 함께 종료됩니다.</string>
+    <string name="terminal_close_confirm">닫기</string>
+    <string name="terminal_retry">다시 열기</string>
+    <string name="terminal_stop">중지</string>
+    <string name="terminal_task_running">Mika도 이 작업 공간에서 작업 중입니다. 동시에 변경하면 서로 영향을 줄 수 있습니다.</string>
+    <string name="terminal_copy_all">모두 복사</string>
+    <string name="terminal_copied">복사됨</string>
 </resources>

@@ -282,7 +282,7 @@ fun BrowserFindBar(find: FindState, onQuery: (String) -> Unit, onPrev: () -> Uni
                 text, { text = it },
                 Modifier.weight(1f).padding(horizontal = 8.dp).focusRequester(focus).testTag("browser-find-input"),
                 singleLine = true,
-                textStyle = MikaType.Body.copy(color = c.ink),
+                textStyle = MikaType.Body.copy(color = c.ink, textDirection = androidx.compose.ui.text.style.TextDirection.Content),
                 cursorBrush = SolidColor(c.accent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             )

@@ -66,7 +66,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 设置里能进入的子页面;[Home] 是设置首页,[Advanced] 集中放置连接、维护和工程能力。 */
-private enum class SettingsPage { Home, Advanced, AppAccess, PhoneOps, Wechat, DuringWork, Capsule, Language, Notifications, Sandbox, Recovery, SelfCheck, ComputerAccess, McpServers, Root, Developer, RunStats }
+private enum class SettingsPage { Home, Advanced, AppAccess, PhoneOps, Wechat, DuringWork, Capsule, Language, Notifications, Recommendations, Sandbox, Recovery, SelfCheck, ComputerAccess, McpServers, Root, Developer, RunStats }
 
 /**
  * 设置页:总状态卡 + 常用 / 我的数据 / 其他。高级与其他只增加一层,各子页返回来时的页面。
@@ -105,6 +105,7 @@ fun SettingsScreen(
 
     // 并行任务的上限只在实验开关 parallelTasks 打开时出现;设备能力按此刻算,第二块屏建失败过就按失败算
     val context = LocalContext.current
+    val recommendedTasks = remember { (context.applicationContext as com.wangzan101.mika.MikaApp).recommendedTasks }
     val root = remember { com.wangzan101.mika.cap.phone.PhoneServices.of(context).shellManager.root }
     val rootState by root.state.collectAsState()
     LaunchedEffect(Unit) { root.refresh() }
@@ -185,6 +186,7 @@ fun SettingsScreen(
             onOpenNotifications = { page = SettingsPage.Notifications },
             language = language, onOpenLanguage = { page = SettingsPage.Language },
             onOpenMemory = onOpenMemory,
+            onOpenRecommendations = { page = SettingsPage.Recommendations },
             onOpenAdvanced = { page = SettingsPage.Advanced },
             versionName = BuildConfig.VERSION_NAME, updateVersion = updateVersion, onOpenAbout = onOpenAbout,
         )
@@ -218,6 +220,7 @@ fun SettingsScreen(
             selfConfig = selfConfig, onSelfConfig = { flags.setSelfConfig(it); selfConfig = it },
         )
         SettingsPage.Language -> LanguageScreen(language, onLanguage = { AppLanguage.set(context, it) }, onBack = toHome)
+        SettingsPage.Recommendations -> RecommendedTasksScreen(recommendedTasks, onBack = toHome)
         SettingsPage.Capsule -> CapsuleScreen(
             capsuleMode, onMode = { flags.setCapsuleMode(it); capsuleMode = it }, onBack = toHome,
             idleOpacity = capsuleIdleOpacity,
@@ -328,6 +331,7 @@ fun SettingsContent(
     language: AppLanguage = AppLanguage.System,
     onOpenLanguage: () -> Unit = {},
     onOpenMemory: (() -> Unit)? = null,
+    onOpenRecommendations: () -> Unit = {},
     onOpenAdvanced: () -> Unit = {},
     versionName: String = "",
     updateVersion: String? = null,
@@ -372,7 +376,14 @@ fun SettingsContent(
             onOpenMemory?.let {
                 ListRow(MikaIcons.Heart, stringResource(R.string.settings_memory_data), stringResource(R.string.settings_memory_sub), first = true, onClick = it) { RowChevron() }
             }
-            ListRow(MikaIcons.Shield, stringResource(R.string.appaccess_title), stringResource(R.string.appaccess_row_sub), first = onOpenMemory == null, onClick = onOpenAppAccess) { RowChevron() }
+            ListRow(
+                MikaIcons.Message,
+                stringResource(R.string.recommendations_title),
+                stringResource(R.string.recommendations_sub),
+                first = onOpenMemory == null,
+                onClick = onOpenRecommendations,
+            ) { RowChevron() }
+            ListRow(MikaIcons.Shield, stringResource(R.string.appaccess_title), stringResource(R.string.appaccess_row_sub), onClick = onOpenAppAccess) { RowChevron() }
         }
 
         GroupLabel(stringResource(R.string.settings_other))

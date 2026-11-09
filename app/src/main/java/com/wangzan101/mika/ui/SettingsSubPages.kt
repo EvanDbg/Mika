@@ -466,6 +466,7 @@ fun languageLabel(l: AppLanguage): String = stringResource(
         AppLanguage.SimplifiedChinese -> R.string.language_simplified_chinese
         AppLanguage.TraditionalChinese -> R.string.language_traditional_chinese
         AppLanguage.Arabic -> R.string.language_arabic
+        AppLanguage.Persian -> R.string.language_persian
         AppLanguage.English -> R.string.language_english
         AppLanguage.Japanese -> R.string.language_japanese
         AppLanguage.Korean -> R.string.language_korean

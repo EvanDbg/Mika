@@ -107,4 +107,27 @@
     <string name="speech_asr_language_ja">Японский</string>
     <string name="speech_asr_language_yue">Кантонский</string>
     <string name="speech_asr_language_ko">Корейский</string>
+    <string name="terminal_title">Терминал</string>
+    <string name="terminal_open">Терминал</string>
+    <string name="terminal_open_action">Открыть терминал</string>
+    <string name="terminal_network_on">В сети</string>
+    <string name="terminal_network_off">Не в сети</string>
+    <string name="terminal_preparing">Подготовка среды…</string>
+    <string name="terminal_unsupported">Это устройство не поддерживает терминал (требуется arm64).</string>
+    <string name="terminal_unavailable">Среда ещё не готова. Повторите попытку чуть позже.</string>
+    <string name="terminal_limit">Одновременно можно открыть не более двух терминалов. Сначала закройте один.</string>
+    <string name="terminal_storage_low">Свободно меньше 500 МБ, поэтому терминал нельзя открыть.</string>
+    <string name="terminal_busy">Среда сбрасывается. Повторите попытку чуть позже.</string>
+    <string name="terminal_revoked">Среда была сброшена или рабочая область очищена, поэтому терминал закрыт.</string>
+    <string name="terminal_exited">Терминал завершён (код выхода %1$d).</string>
+    <string name="terminal_closed">Терминал закрыт.</string>
+    <string name="terminal_close">Закрыть терминал</string>
+    <string name="terminal_close_title">Закрыть этот терминал?</string>
+    <string name="terminal_close_body">Запущенные программы тоже будут остановлены.</string>
+    <string name="terminal_close_confirm">Закрыть</string>
+    <string name="terminal_retry">Открыть снова</string>
+    <string name="terminal_stop">Остановить</string>
+    <string name="terminal_task_running">Mika тоже работает в этой рабочей области; изменения с обеих сторон могут мешать друг другу.</string>
+    <string name="terminal_copy_all">Копировать всё</string>
+    <string name="terminal_copied">Скопировано</string>
 </resources>

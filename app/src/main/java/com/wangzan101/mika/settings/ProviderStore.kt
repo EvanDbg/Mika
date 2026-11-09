@@ -317,6 +317,10 @@ class ProviderStore(
     /** 已连接的服务商,按连接的先后。 */
     val providers: StateFlow<List<Provider>> = _providers.asStateFlow()
 
+    // 换 Key 时服务商列表可能没变，额度页用版本号作废旧结果。
+    private val _providerKeyRevisions = MutableStateFlow<Map<String, Long>>(emptyMap())
+    internal val providerKeyRevisions = _providerKeyRevisions.asStateFlow()
+
     private val _configs = MutableStateFlow<List<ProviderConfig>>(emptyList())
     val configs: StateFlow<List<ProviderConfig>> = _configs.asStateFlow()
 
@@ -361,6 +365,17 @@ class ProviderStore(
     fun providerKey(providerId: String): String? {
         val enc = synchronized(this) { keys[providerId] } ?: return null
         return runCatching { String(cipher.decrypt(decode(enc))) }.getOrNull()
+    }
+
+    /** 只为仍匹配这次额度查询的服务商配置取 Key。 */
+    @Synchronized
+    internal fun allowanceKey(provider: Provider, revision: Long): String? =
+        if (matchesAllowanceConnection(provider, revision)) providerKey(provider.id) else null
+
+    internal fun matchesAllowanceConnection(provider: Provider, revision: Long): Boolean {
+        val current = provider(provider.id) ?: return false
+        return current.baseUrl == provider.baseUrl && current.kind == provider.kind && current.signIn == provider.signIn &&
+            (_providerKeyRevisions.value[provider.id] ?: 0L) == revision
     }
 
     /** 这个服务商存了 Key 没有(本地服务可以不填)。 */
@@ -457,6 +472,7 @@ class ProviderStore(
         _roles.value = _roles.value.keepOnly(_configs.value.map { it.id }.toSet())
         prune()
         if (providerId in keys) setKey(providerId, "")
+        _providerKeyRevisions.value -= providerId
         writeConfig()
     }
 
@@ -863,6 +879,8 @@ class ProviderStore(
     private fun setKey(providerId: String, apiKey: String) {
         keys = if (apiKey.isEmpty()) keys - providerId else keys + (providerId to encode(cipher.encrypt(apiKey.toByteArray())))
         writeAtomically(keyFile, keysJson())
+        val revisions = _providerKeyRevisions.value
+        _providerKeyRevisions.value = revisions + (providerId to ((revisions[providerId] ?: 0L) + 1))
     }
 
     /** 删掉没有用途在用的模型配置。Key 存在服务商上,不受影响。 */

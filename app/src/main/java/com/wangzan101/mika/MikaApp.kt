@@ -226,6 +226,11 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
     /** 最近一次系统分享尚未发送的草稿和它的私有图片副本。 */
     val sharedDrafts: SharedDraftStore by lazy { SharedDraftStore(java.io.File(filesDir, "shared-drafts")) }
 
+    /** 用户自己打开的终端(按对话):只从界面进,不交给任何任务,也不写运行记录。 */
+    val terminals: com.wangzan101.mika.terminal.TerminalHub by lazy {
+        com.wangzan101.mika.terminal.TerminalHub(this, conversations)
+    }
+
     /** 删对话(侧栏长按):停掉它的当前任务并删工作区,保留定时任务。 */
     val conversationDeleter: ConversationDeleter by lazy {
         val app = this
@@ -251,6 +256,11 @@ class MikaApp : Application(), WebOwner, SandboxOwner, TaskEnvironment.Owner, Ph
 
     val appAccess: com.wangzan101.mika.settings.AppAccessStore by lazy {
         com.wangzan101.mika.settings.AppAccessStore(java.io.File(filesDir, "app-access.json"))
+    }
+
+    /** 首页推荐任务。文件还不存在时,由界面用当前语言的内置示例初始化一次。 */
+    val recommendedTasks: com.wangzan101.mika.settings.RecommendedTaskStore by lazy {
+        com.wangzan101.mika.settings.RecommendedTaskStore(java.io.File(filesDir, com.wangzan101.mika.settings.RecommendedTaskStore.FILE))
     }
 
     /** 全局的询问 / 自主和各任务自己的那一份;开发者选项里的「自主模式」经它改。 */
