@@ -90,6 +90,22 @@ class UsageLedgerTest {
         assertEquals(v + 2, l.version.value)
     }
 
+    @Test fun localMidnightSplitsAnHourForTheBudgetButNotForTheChart() {
+        val zone = ZoneId.of("Asia/Kolkata")
+        clock = Instant.parse("2026-11-10T18:25:00Z").toEpochMilli()
+        val l = UsageLedger(file, now = { clock }, zone = zone, flushDelayMs = 60_000)
+        l.record(main, Usage(100, 10))
+        clock = Instant.parse("2026-11-10T18:40:00Z").toEpochMilli()
+        assertEquals(0L, l.providerTokensToday("p1"))
+        l.record(main, Usage(10_000, 10))
+        assertEquals(10_010L, l.providerTokensToday("p1"))
+        assertEquals(10_120L, l.snapshot().rows.single().counts.let { it.input + it.output })
+        l.flush()
+        val reopened = UsageLedger(file, now = { clock }, zone = zone)
+        assertEquals(10_010L, reopened.providerTokensToday("p1"))
+        assertEquals(l.snapshot().rows, reopened.snapshot().rows)
+    }
+
     @Test fun persistsAcrossInstances() {
         val l = ledger()
         l.record(main, Usage(100, 10, 40))

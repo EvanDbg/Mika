@@ -6,15 +6,33 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/coder/websocket"
 )
 
-func consoleLogin(t *testing.T, f *fixture, token string) *http.Cookie {
+func expectConsoleAuth(t *testing.T, c *websocket.Conn, token string, status int) <-chan struct{} {
 	t.Helper()
-	form := url.Values{"token": {token}}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		request := readFrame(t, c)
+		if request.Method != http.MethodGet || request.Path != "/api/v1" || request.Headers["authorization"] != "Bearer "+token {
+			t.Errorf("unexpected login probe: method=%s path=%s", request.Method, request.Path)
+		}
+		sendFrame(t, c, frame{Type: "response", ID: request.ID, Status: status})
+	}()
+	return done
+}
+
+func consoleLogin(t *testing.T, f *fixture, c *websocket.Conn) *http.Cookie {
+	t.Helper()
+	auth := expectConsoleAuth(t, c, f.token, http.StatusOK)
+	form := url.Values{"token": {f.token}}
 	status, headers, _ := f.request(t, "POST", "/web/login", "", form.Encode(), "application/x-www-form-urlencoded")
 	if status != 200 {
 		t.Fatalf("login status %d", status)
 	}
+	<-auth
 	response := &http.Response{Header: headers}
 	cookies := response.Cookies()
 	if len(cookies) == 0 || cookies[0].Name != consoleCookie || !cookies[0].HttpOnly {
@@ -38,7 +56,8 @@ func TestConsolePageAndSessionLifecycle(t *testing.T) {
 		t.Fatalf("session before login: %d %s", status, body)
 	}
 
-	cookie := consoleLogin(t, f, "token-from-phone")
+	f.pair(t)
+	cookie := consoleLogin(t, f, f.connect(t))
 	status, _, body = requestWithCookie(t, f, "GET", "/web/session", cookie)
 	if status != 200 || !strings.Contains(string(body), `"connected":true`) {
 		t.Fatalf("session after login: %d %s", status, body)
@@ -63,7 +82,8 @@ func TestConsoleRequiresSessionAndOnlyAllowsReadPaths(t *testing.T) {
 	if status, _, _ := f.request(t, "GET", "/web/api/v1/conversations", "", "", ""); status != 401 {
 		t.Fatalf("unauthenticated console request: %d", status)
 	}
-	cookie := consoleLogin(t, f, "token")
+	f.pair(t)
+	cookie := consoleLogin(t, f, f.connect(t))
 	if status, _, _ := requestWithCookie(t, f, "GET", "/web/api/v1/tasks/1/cancel", cookie); status != 404 {
 		t.Fatalf("write path should not be reachable from the console: %d", status)
 	}
@@ -76,7 +96,7 @@ func TestConsoleForwardsWithStoredTokenAndStripsBrowserOrigin(t *testing.T) {
 	f := newFixture(t)
 	f.pair(t)
 	c := f.connect(t)
-	cookie := consoleLogin(t, f, f.token)
+	cookie := consoleLogin(t, f, c)
 
 	done := make(chan struct{})
 	go func() {
@@ -132,6 +152,39 @@ func TestConsoleLoginRejectsForeignOrigin(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != 403 {
 		t.Fatalf("foreign origin login: %d", response.StatusCode)
+	}
+}
+
+func TestConsoleLoginRequiresAnOnlinePhone(t *testing.T) {
+	f := newFixture(t)
+	form := url.Values{"token": {"unverified-token"}}
+	status, headers, _ := f.request(t, "POST", "/web/login", "", form.Encode(), "application/x-www-form-urlencoded")
+	if status != http.StatusServiceUnavailable || headers.Get("Set-Cookie") != "" {
+		t.Fatalf("offline login: status=%d cookie=%q", status, headers.Get("Set-Cookie"))
+	}
+}
+
+func TestConsoleInvalidTokenDoesNotOccupyASessionSlot(t *testing.T) {
+	f := newFixture(t)
+	f.pair(t)
+	c := f.connect(t)
+	owner := consoleLogin(t, f, c)
+	auth := expectConsoleAuth(t, c, "invalid-token", http.StatusUnauthorized)
+	form := url.Values{"token": {"invalid-token"}}
+	status, headers, _ := f.request(t, "POST", "/web/login", "", form.Encode(), "application/x-www-form-urlencoded")
+	if status != http.StatusUnauthorized || headers.Get("Set-Cookie") != "" {
+		t.Fatalf("invalid login: status=%d cookie=%q", status, headers.Get("Set-Cookie"))
+	}
+	<-auth
+	store := f.g.consoleStore()
+	store.mu.Lock()
+	count := len(store.sessions)
+	store.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("invalid login changed the session count to %d", count)
+	}
+	if _, ok := store.token(owner.Value); !ok {
+		t.Fatal("authenticated owner's session was lost")
 	}
 }
 

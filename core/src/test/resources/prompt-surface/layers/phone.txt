@@ -509,8 +509,8 @@ List what is on this screen as text, without a screenshot. Each element comes wi
 {"type":"object","properties":{"reason":{"type":"string","description":"Optional short note on why you are calling this, in the user's language; shown to the user as the step label."}},"required":[],"additionalProperties":false}
 
 ## phone_screenshot
-Capture the current screen as an image.
-{"type":"object","properties":{"reason":{"type":"string","description":"Optional short note on why you are calling this, in the user's language; shown to the user as the step label."}},"required":[],"additionalProperties":false}
+Capture the current screen as an image. To give a screenshot to the user, set savePath to a new .png path under /workspace, then call share_file on the returned path. Saving does not overwrite an existing file. Models that cannot view images must set savePath; they can still capture and deliver the screenshot.
+{"type":"object","properties":{"savePath":{"type":"string","description":"Optional new PNG path under /workspace. Save the screenshot there, then use share_file to give it to the user."},"reason":{"type":"string","description":"Optional short note on why you are calling this, in the user's language; shown to the user as the step label."}},"required":[],"additionalProperties":false}
 
 ## phone_describe
 Ask the vision model to read the whole screen for you, when you cannot tell from the element list what the page is or how it is laid out. Say in task what you are about to do. You get back what the page is, the controls you can use with their 0-999 centre points, anything odd or in the way, and hints for your task. It is slow (often over ten seconds): to find one control, icon or input box, use phone_find_visually instead.

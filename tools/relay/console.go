@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"sync"
@@ -155,6 +156,34 @@ func (g *gateway) consoleLogin(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "invalid_token")
 		return
 	}
+	// The phone owns token validation. Only authenticated tokens can occupy a session slot.
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	probe := r.Clone(ctx)
+	probe.Method = http.MethodGet
+	probe.URL.Path, probe.URL.RawPath, probe.URL.RawQuery = "/api/v1", "", ""
+	probe.Body = http.NoBody
+	probe.Header = http.Header{"Authorization": {"Bearer " + token}, "Accept": {"application/json"}}
+	if forwarded := r.Header.Values("X-Forwarded-For"); len(forwarded) != 0 {
+		probe.Header["X-Forwarded-For"] = forwarded
+	}
+	result := consoleAuthResponse{headers: make(http.Header)}
+	g.proxy(&result, probe)
+	switch result.status {
+	case http.StatusOK:
+	case http.StatusUnauthorized, http.StatusForbidden:
+		failure(w, http.StatusUnauthorized, "invalid_token")
+		return
+	case http.StatusTooManyRequests:
+		if retry := result.headers.Get("Retry-After"); retry != "" {
+			w.Header().Set("Retry-After", retry)
+		}
+		failure(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	default:
+		failure(w, http.StatusServiceUnavailable, "device_unavailable")
+		return
+	}
 	id := g.consoleStore().open(token)
 	http.SetCookie(w, &http.Cookie{
 		Name: consoleCookie, Value: id, Path: "/web", HttpOnly: true,
@@ -163,6 +192,16 @@ func (g *gateway) consoleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(w, 200, map[string]bool{"connected": true})
 }
+
+// The login probe needs only the phone's status and optional retry delay.
+type consoleAuthResponse struct {
+	headers http.Header
+	status  int
+}
+
+func (r *consoleAuthResponse) Header() http.Header            { return r.headers }
+func (r *consoleAuthResponse) WriteHeader(status int)         { r.status = status }
+func (r *consoleAuthResponse) Write(body []byte) (int, error) { return len(body), nil }
 
 func (g *gateway) consoleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {

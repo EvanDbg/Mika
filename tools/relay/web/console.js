@@ -54,6 +54,8 @@ const online = $("online");
 const state = { connected: false, conversations: [], running: [], selected: null, page: null, limit: 10, pagedBack: false, capabilities: null, unsupported: false };
 let pollTimer = null;
 let refreshing = false;
+let detailVersion = 0;
+let paging = null;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -100,12 +102,13 @@ function applyText() {
   loadMore.textContent = tx.loadOlder;
 }
 
-async function api(path) {
+async function api(path, isCurrent = () => true) {
   const response = await fetch("/web" + path, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
+  if (!isCurrent()) return null;
   if (response.status === 401) {
     await fetch("/web/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
     showLogin(tx.tokenRejected);
@@ -123,6 +126,7 @@ function showLogin(message) {
   state.connected = false;
   state.capabilities = null;
   state.unsupported = false;
+  clearDetail();
   stopPolling();
   app.hidden = true;
   login.hidden = false;
@@ -259,22 +263,38 @@ function renderConversations() {
 }
 
 async function openConversation(id) {
+  clearDetail();
   state.selected = id;
-  state.page = null;
-  state.pagedBack = false;
   detailPane.hidden = false;
   app.classList.add("mobile-detail");
   layout.classList.add("has-detail");
   renderConversations();
-  detailTitle.textContent = "";
-  turnsBox.replaceChildren();
   await loadSelected();
 }
 
+function clearDetail() {
+  detailVersion++;
+  paging = null;
+  state.selected = null;
+  state.page = null;
+  state.pagedBack = false;
+  detailPane.hidden = true;
+  app.classList.remove("mobile-detail");
+  layout.classList.remove("has-detail");
+  detailTitle.textContent = "";
+  turnsBox.replaceChildren();
+  loadMore.hidden = true;
+}
+
 async function loadSelected(options = {}) {
-  if (!state.selected) return;
+  const id = state.selected;
+  if (!id || paging !== null) return;
+  const version = ++detailVersion;
+  const isCurrent = () => version === detailVersion;
   const wasAtBottom = nearBottom();
-  const data = await api("/api/v1/conversations/" + encodeURIComponent(state.selected) + "?limit=" + state.limit);
+  const data = await api("/api/v1/conversations/" + encodeURIComponent(id) + "?limit=" + state.limit, isCurrent)
+    .catch(error => { if (isCurrent()) throw error; });
+  if (!isCurrent()) return;
   onlineNow();
   state.page = data;
   detailTitle.textContent = clean(data.title) || state.selected;
@@ -310,23 +330,33 @@ function renderTurn(turn) {
 }
 
 async function loadOlder() {
-  if (!state.page || state.page.from <= 0) return;
-  const count = Math.min(state.limit, state.page.from);
-  const from = state.page.from - count;
-  if (count <= 0) return;
-  const data = await api("/api/v1/conversations/" + encodeURIComponent(state.selected) + "?from=" + from + "&limit=" + count);
-  const height = document.body.scrollHeight;
-  const top = window.scrollY;
-  state.page = {
-    ...state.page,
-    from: data.from,
-    total: data.total,
-    turns: [...(data.turns || []), ...(state.page.turns || [])],
-  };
-  state.pagedBack = true;
-  renderTurns();
-  loadMore.hidden = state.page.from <= 0;
-  window.scrollTo(0, top + document.body.scrollHeight - height);
+  const { selected: id, page } = state;
+  if (!id || !page || page.from <= 0 || paging !== null) return;
+  const count = Math.min(state.limit, page.from);
+  const from = page.from - count;
+  const version = ++detailVersion;
+  const isCurrent = () => version === detailVersion;
+  paging = version;
+  try {
+    const data = await api("/api/v1/conversations/" + encodeURIComponent(id) + "?from=" + from + "&limit=" + count, isCurrent);
+    if (!isCurrent()) return;
+    const height = document.body.scrollHeight;
+    const top = window.scrollY;
+    state.page = {
+      ...page,
+      from: data.from,
+      total: data.total,
+      turns: [...(data.turns || []), ...(page.turns || [])],
+    };
+    state.pagedBack = true;
+    renderTurns();
+    loadMore.hidden = state.page.from <= 0;
+    window.scrollTo(0, top + document.body.scrollHeight - height);
+  } catch (error) {
+    if (isCurrent()) throw error;
+  } finally {
+    if (paging === version) paging = null;
+  }
 }
 
 function nearBottom() {
@@ -380,18 +410,11 @@ $("logout").addEventListener("click", async () => {
   } catch (_) {
     // The cookie is dropped locally even if the gateway cannot be reached.
   }
-  state.selected = null;
-  state.page = null;
-  app.classList.remove("mobile-detail");
-  layout.classList.remove("has-detail");
   showLogin();
 });
 
 $("back").addEventListener("click", () => {
-  app.classList.remove("mobile-detail");
-  layout.classList.remove("has-detail");
-  detailPane.hidden = true;
-  state.selected = null;
+  clearDetail();
   renderConversations();
 });
 

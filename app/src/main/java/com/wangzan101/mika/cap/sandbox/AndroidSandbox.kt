@@ -269,12 +269,7 @@ class AndroidSandbox internal constructor(
         val c = cols.coerceIn(1, 1000)
         val r = rows.coerceIn(1, 1000)
         prepare()
-        val sizeFile = withContext(Dispatchers.IO) {
-            File(dirs.tmp, "pty-${java.util.UUID.randomUUID()}.size").apply {
-                parentFile?.mkdirs()
-                writeText("$c $r")
-            }
-        }
+        val sizeFile = File(dirs.tmp, "pty-${java.util.UUID.randomUUID()}.size")
         val started = java.util.concurrent.atomic.AtomicReference<Process?>(null)
         val revoked = MutableStateFlow(false)
         val exited = CompletableDeferred<Int>()
@@ -285,6 +280,8 @@ class AndroidSandbox internal constructor(
         try {
             val process = tree.shared {
                 val ws = withContext(Dispatchers.IO) {
+                    sizeFile.parentFile?.mkdirs()
+                    sizeFile.writeText("$c $r")
                     dirs.workspace(workspace).also {
                         dirs.ensureBindSources(it)
                         syncClientScript()
@@ -300,9 +297,8 @@ class AndroidSandbox internal constructor(
                     ProcessBuilder(cmd).redirectErrorStream(true).apply {
                         environment().clear()
                         environment().putAll(env)
-                    }.start()
+                    }.start().also(started::set)
                 }
-                started.set(p)
                 if (lease.revoked) {
                     stopNow(p)
                     throw SandboxError("sandbox_busy", "The sandbox is being reset; try again later.", recoverable = true)
@@ -311,9 +307,11 @@ class AndroidSandbox internal constructor(
             }
             thread(isDaemon = true, name = "mika-terminal-wait") {
                 val code = runCatching { process.waitFor() }.getOrDefault(-1)
+                lease.close()
+                synchronized(sizeFile) { runCatching { sizeFile.delete() } }
                 exited.complete(code)
             }
-            return SandboxShellHandle(process, lease, exited, revoked.asStateFlow(), sizeFile)
+            return SandboxShellHandle(process, exited, revoked.asStateFlow(), sizeFile)
         } catch (e: Throwable) {
             started.get()?.let(::stopNow)
             lease.close()
@@ -598,10 +596,9 @@ private class SandboxProcessHandle(
     }
 }
 
-/** [AndroidSandbox.openShell] 的终端会话:关闭时同样先 SIGTERM 启动器,再兜底 SIGKILL,并交还租约。 */
+/** 关闭时先 SIGTERM 启动器，再兜底 SIGKILL。等待线程在进程退出后交还租约。 */
 private class SandboxShellHandle(
     private val process: Process,
-    private val lease: com.wangzan101.mika.core.workspace.SandboxTree.Lease,
     override val exited: Deferred<Int>,
     override val revoked: StateFlow<Boolean>,
     private val sizeFile: File,
@@ -611,19 +608,16 @@ private class SandboxShellHandle(
 
     override fun resize(cols: Int, rows: Int) {
         if (cols !in 1..1000 || rows !in 1..1000) return
-        runCatching { sizeFile.writeText("$cols $rows") }
+        synchronized(sizeFile) {
+            if (process.isAlive) runCatching { sizeFile.writeText("$cols $rows") }
+        }
     }
 
     override fun close() {
         runCatching { process.outputStream.close() }
         runCatching { process.destroy() }
         thread(isDaemon = true, name = "mika-terminal-reaper") {
-            try {
-                if (!process.waitFor(DESTROY_GRACE_MS, TimeUnit.MILLISECONDS)) process.destroyForcibly()
-            } finally {
-                lease.close()
-                runCatching { sizeFile.delete() }
-            }
+            if (!process.waitFor(DESTROY_GRACE_MS, TimeUnit.MILLISECONDS)) process.destroyForcibly()
         }
         runCatching { process.inputStream.close() }
     }

@@ -502,13 +502,16 @@ class TaskService : Service() {
                 return@launch
             }
             val deliveryId = "result:${run.key}"
-            center.markResult(run, describe(end).second, deliveryId, successful = end is TaskState.Succeeded)
             run.clearTakeoverStage()
             synchronized(notifyLock) { getSystemService(NotificationManager::class.java).cancel(id(ID_ATTENTION, run)) }
             // 先发结果通知,再在后台学(提取记忆、记技能结果、起草技能);用进程级作用域,服务退出也做完
             var delivered = false
             val app = applicationContext
             runCatching {
+                // Persist the whole delivery before marking the result ready; recovery must know about its images too.
+                // A storage failure skips sending but must still release this task's slot below.
+                prepareResult(run, end, deliveryId)
+                center.markResult(run, describe(end).second, deliveryId, successful = end is TaskState.Succeeded)
                 RunLearning.launchAfter(MemoryRuntime.of(this@TaskService).scope, {
                     delivered = notifyResult(run, end, deliveryId) == DeliveryState.Delivered
                     // 定时任务的结果当场按结局记(和以前一样),判下来没办成再改记;不靠服务一直在
@@ -880,15 +883,24 @@ class TaskService : Service() {
         return Notification.Action.Builder(null, option, pi).build()
     }
 
+    private suspend fun prepareResult(run: TaskRun, end: TaskState, deliveryId: String) {
+        val (title, text) = describe(end)
+        val peer = run.channelPeer ?: ChannelPeer(LocalChannel.ID, "phone-owner", run.conversationId)
+        ResultDelivery.prepare(outbox, channelFor(peer), peer,
+            Delivery.Result(deliveryId, run.conversationId, text, title = title), run.sharedFiles.value)
+    }
+
     private suspend fun notifyResult(run: TaskRun, end: TaskState, deliveryId: String): DeliveryState {
+        prepareResult(run, end, deliveryId)
         val (title, text) = describe(end)
         val peer = run.channelPeer ?: ChannelPeer(LocalChannel.ID, "phone-owner", run.conversationId)
         val started = SystemClock.elapsedRealtime()
-        val delivered = outbox.deliver(channelFor(peer), peer, Delivery.Result(deliveryId, run.conversationId, text, title = title))
+        val delivered = ResultDelivery.send(outbox, channelFor(peer), peer,
+            Delivery.Result(deliveryId, run.conversationId, text, title = title))
         val finished = SystemClock.elapsedRealtime()
         val sinceReady = if (run.resultReadyAtMs > 0) finished - run.resultReadyAtMs else -1
-        Log.i(TAG, "result ${delivered.state}: delivery ${finished - started} ms, since ready $sinceReady ms")
-        return delivered.state
+        Log.i(TAG, "result $delivered: delivery ${finished - started} ms, since ready $sinceReady ms")
+        return delivered
     }
 
     private fun action(run: TaskRun, title: String, action: String, code: Int): Notification.Action {
@@ -959,7 +971,7 @@ class TaskService : Service() {
                 is Delivery.Notice -> nm.notify(nextResultId(), Notification.Builder(context, CHANNEL_RESULT)
                     .setSmallIcon(R.drawable.ic_notification).setContentTitle("Mika")
                     .setContentText(delivery.text).setContentIntent(openApp(context, delivery.threadId)).setAutoCancel(true).build())
-                is Delivery.Ask, is Delivery.Progress -> {}
+                is Delivery.Ask, is Delivery.Progress, is Delivery.Image -> {}
             }
             return SendOutcome.Delivered
         }

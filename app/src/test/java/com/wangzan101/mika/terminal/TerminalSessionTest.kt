@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -28,7 +29,7 @@ class TerminalSessionTest {
         override val output: InputStream = toApp
         override val exited = CompletableDeferred<Int>()
         override val revoked = MutableStateFlow(false)
-        var closed = false
+        @Volatile var closed = false
         override fun close() {
             closed = true
             runCatching { writer.close() }
@@ -56,11 +57,15 @@ class TerminalSessionTest {
             assertEquals("ls -la\n", String(got, 0, n))
             assertEquals("ls -la", session.history.last())
 
+            shell.writer.close()
             shell.exited.complete(7)
             withTimeout(2_000) {
                 while (session.phase.value != TerminalSession.Phase.Exited) Thread.sleep(10)
             }
             assertEquals(7, session.exitCode.value)
+            withTimeout(2_000) {
+                while (!shell.closed || shell.revoked.subscriptionCount.value != 0) delay(10)
+            }
         } finally {
             session.close()
             scope.cancel()

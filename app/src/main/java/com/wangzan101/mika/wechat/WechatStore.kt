@@ -20,6 +20,8 @@ data class PendingWechatMessage(
     val peer: ChannelPeer,
     val text: String,
     val replyToAskId: String? = null,
+    /** Rejected media is a durable notice, never a task with silently missing pictures. */
+    val imageFailure: Boolean = false,
 )
 
 @Serializable
@@ -126,41 +128,78 @@ class WechatStore(
     }
 
     @Synchronized fun cursor() = state.cursor
-    @Synchronized fun saveCursor(value: String) { state = state.copy(cursor = value); saveState() }
+    @Synchronized fun saveCursor(value: String, expectedAccount: WechatAccount? = null) {
+        if (expectedAccount != null && (account != expectedAccount || !state.enabled)) return
+        val next = state.copy(cursor = value)
+        saveState(next)
+        state = next
+    }
     @Synchronized fun contextToken(peerId: String) = state.contextTokens[peerId]
 
-    @Synchronized fun rememberContext(peerId: String, token: String?) {
+    @Synchronized fun accepts(peer: ChannelPeer, expectedAccount: WechatAccount? = null): Boolean {
+        val current = account ?: return false
+        return (expectedAccount == null || expectedAccount == current) && state.enabled &&
+            peer.channelId == WechatChannel.ID && peer.peerId == current.ownerId &&
+            state.threads[peer.peerId] == peer.threadId
+    }
+
+    @Synchronized fun hasMessage(messageId: String) =
+        messageId in state.acknowledgedMessages || state.pending.any { it.messageId == messageId }
+
+    @Synchronized fun rememberContext(peerId: String, token: String?, expectedAccount: WechatAccount? = null) {
+        if (expectedAccount != null && (account != expectedAccount || !state.enabled || expectedAccount.ownerId != peerId)) return
         if (token.isNullOrBlank() || state.contextTokens[peerId] == token) return
-        state = state.copy(contextTokens = state.contextTokens + (peerId to token))
-        saveState()
+        val next = state.copy(contextTokens = state.contextTokens + (peerId to token))
+        saveState(next)
+        state = next
     }
 
     @Synchronized fun peer(peerId: String): ChannelPeer {
         val thread = state.threads[peerId] ?: "wechat-${UUID.randomUUID()}".also {
-            state = state.copy(threads = state.threads + (peerId to it))
-            saveState()
+            val next = state.copy(threads = state.threads + (peerId to it))
+            saveState(next)
+            state = next
         }
         return ChannelPeer(WechatChannel.ID, peerId, thread)
     }
 
+    /** Resolve the private conversation and refresh its reply token under the same binding check. */
+    @Synchronized fun messagePeer(expectedAccount: WechatAccount, token: String?): ChannelPeer? {
+        if (account != expectedAccount || !state.enabled) return null
+        val owner = expectedAccount.ownerId
+        val thread = state.threads[owner] ?: "wechat-${UUID.randomUUID()}"
+        val next = state.copy(threads = state.threads + (owner to thread),
+            contextTokens = if (token.isNullOrBlank()) state.contextTokens else state.contextTokens + (owner to token))
+        if (next != state) {
+            saveState(next)
+            state = next
+        }
+        return ChannelPeer(WechatChannel.ID, owner, thread)
+    }
+
     /** 同一消息只入站一次；未确认的会在下次启动由 [pending] 补交。 */
-    @Synchronized fun journal(messageId: String, peer: ChannelPeer, text: String, replyToAskId: String? = null): Boolean {
-        if (messageId in state.acknowledgedMessages || state.pending.any { it.messageId == messageId }) return false
-        state = state.copy(pending = state.pending + PendingWechatMessage(messageId, peer, text, replyToAskId))
-        saveState()
+    @Synchronized fun journal(messageId: String, peer: ChannelPeer, text: String, replyToAskId: String? = null,
+        imageFailure: Boolean = false, expectedAccount: WechatAccount? = null): Boolean {
+        if (expectedAccount != null && !accepts(peer, expectedAccount)) return false
+        if (hasMessage(messageId)) return false
+        val next = state.copy(pending = state.pending + PendingWechatMessage(messageId, peer, text, replyToAskId, imageFailure))
+        saveState(next)
+        state = next
         return true
     }
 
     @Synchronized fun pending(): List<PendingWechatMessage> = state.pending
 
-    @Synchronized fun acknowledge(messageId: String) {
+    @Synchronized fun acknowledge(messageId: String, expectedAccount: WechatAccount? = null) {
+        if (expectedAccount != null && account != expectedAccount) return
         if (messageId in state.acknowledgedMessages && state.pending.none { it.messageId == messageId }) return
-        state = state.copy(
+        val next = state.copy(
             pending = state.pending.filterNot { it.messageId == messageId },
             acknowledgedMessages = (state.acknowledgedMessages.filterNot { it == messageId } + messageId)
                 .takeLast(MAX_ACKNOWLEDGED_MESSAGES),
         )
-        saveState()
+        saveState(next)
+        state = next
     }
 
     private fun readState(): WechatState = if (stateFile.isFile) runCatching {

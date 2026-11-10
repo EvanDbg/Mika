@@ -8,7 +8,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 环形缓冲:保留最近 [cap] 字节,UI 重新附着时从这里重建画面。 */
 class TerminalRingBuffer(private val cap: Int) {
@@ -84,38 +87,46 @@ class TerminalSession internal constructor(
     /** PTY 自己回显,界面不要再把输入画一遍。 */
     val echoInput = false
 
-    init {
-        scope.launch {
-            val code = runCatching { shell.exited.await() }.getOrDefault(-1)
-            _exitCode.value = code
-            if (shell.revoked.value) {
-                if (_phase.value != Phase.Closed) _phase.value = Phase.Revoked
-            } else if (_phase.value == Phase.Running) {
-                _phase.value = Phase.Exited
-            }
-        }
-        scope.launch {
-            shell.revoked.collect { revoked ->
-                if (revoked && _phase.value == Phase.Running) _phase.value = Phase.Revoked
-            }
-        }
-        scope.launch(Dispatchers.IO) {
-            val buf = ByteArray(16 * 1024)
-            try {
-                shell.output.use { input ->
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        if (n == 0) continue
-                        val chunk = buf.copyOf(n)
-                        ring.append(chunk)
-                        _output.emit(chunk)
-                    }
+    private val shellClosed = AtomicBoolean()
+    private val lifecycle = scope.launch {
+        try {
+            val revocations = launch {
+                shell.revoked.collect { revoked ->
+                    if (revoked) _phase.compareAndSet(Phase.Running, Phase.Revoked)
                 }
-            } catch (_: Throwable) {
-                // 进程被杀、树锁收回、界面关掉都会让读失败;状态由 exit/revoked 那条路给。
             }
-            if (_phase.value == Phase.Running) _phase.value = Phase.Exited
+            val reader = launch(Dispatchers.IO) { drainOutput() }
+            val code = shell.exited.await()
+            _exitCode.value = code
+            _phase.update {
+                when {
+                    it != Phase.Running -> it
+                    shell.revoked.value -> Phase.Revoked
+                    else -> Phase.Exited
+                }
+            }
+            revocations.cancel()
+            reader.join()
+        } finally {
+            releaseShell()
+        }
+    }
+
+    private suspend fun drainOutput() {
+        val buf = ByteArray(16 * 1024)
+        try {
+            shell.output.use { input ->
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    if (n == 0) continue
+                    val chunk = buf.copyOf(n)
+                    ring.append(chunk)
+                    _output.emit(chunk)
+                }
+            }
+        } catch (_: IOException) {
+            // A closed pipe can race with exit, revocation or an explicit close.
         }
     }
 
@@ -144,8 +155,12 @@ class TerminalSession internal constructor(
     fun droppedBytes(): Long = ring.droppedBytes()
 
     fun close() {
-        if (_phase.value == Phase.Closed) return
         _phase.value = Phase.Closed
-        runCatching { shell.close() }
+        lifecycle.cancel()
+        releaseShell()
+    }
+
+    private fun releaseShell() {
+        if (shellClosed.compareAndSet(false, true)) runCatching { shell.close() }
     }
 }

@@ -73,8 +73,11 @@ class RunRecovery(
         }
     }
 
+    private fun resultId(run: StoredRun) = run.deliveryId ?: "result:${run.id.value}"
+        .takeIf { run.channelPeer != null && outbox.get(it)?.delivery is Delivery.Result }
+
     private fun noticeIds(run: StoredRun) =
-        if (run.reply != null && run.deliveryId != null) listOf("uncertain:${run.deliveryId}", "failed:${run.deliveryId}")
+        if (resultId(run) != null) listOf("uncertain:${resultId(run)}", "failed:${resultId(run)}")
         else listOf("interrupted:${run.id.value}")
 
     private fun told(run: StoredRun) = noticeIds(run).any { outbox.get(it) != null }
@@ -83,22 +86,16 @@ class RunRecovery(
         run.triggerWindowKey?.let { triggers.interrupted(it, "run interrupted before the result was confirmed") }
         val peer = run.channelPeer ?: ChannelPeer(LocalChannel.ID, "phone-owner", run.threadId)
         val channel = channels(peer.channelId) ?: return
-        val deliveryId = run.deliveryId
-        val reply = run.reply
+        val deliveryId = resultId(run)
+        val prior = deliveryId?.let(outbox::get)
+        val reply = run.reply ?: (prior?.delivery as? Delivery.Result)?.text
         if (reply != null && deliveryId != null) {
-            val prior = outbox.get(deliveryId)
-            val state = when (prior?.state) {
-                null, DeliveryState.Pending -> outbox.deliver(channel, peer,
-                    prior?.delivery ?: Delivery.Result(deliveryId, run.threadId, reply, restored = true, title = tr(R.string.recovered_result))).state
-                DeliveryState.Attempting -> outbox.deliver(channel, peer, prior.delivery).state
-                else -> prior.state
-            }
+            val result = prior?.delivery as? Delivery.Result
+                ?: Delivery.Result(deliveryId, run.threadId, reply, restored = true, title = tr(R.string.recovered_result))
+            val state = ResultDelivery.send(outbox, channel, peer, result)
             when (state) {
                 DeliveryState.Delivered -> finish(run, reply)
-                DeliveryState.Failed -> outbox.deliver(channel, peer, Delivery.Notice("failed:$deliveryId", run.threadId,
-                    tr(R.string.recover_delivery_failed)))
-                else -> outbox.deliver(channel, peer, Delivery.Notice("uncertain:$deliveryId", run.threadId,
-                    tr(R.string.recover_maybe_delivered)))
+                else -> Unit // ResultDelivery has recorded the failure/uncertainty notice for the entire batch.
             }
         } else {
             val said = run.userText ?: run.goal

@@ -409,7 +409,7 @@ Besides the phone, you have a Linux sandbox (Alpine with Python 3 and Node). Use
 - To the user this is an internal detail: when you talk to the user, say you are processing the files or running a script. Do not mention a sandbox, Linux, Alpine or PRoot.
 - The environment is still being set up in the background. The first tool call waits for it (up to about two minutes); if it is still not ready, the tool says so.
 
-==== tools (43) ====
+==== tools (44) ====
 wait #8ed080dc3f35
 ask_user #9aba9bc58f9e
 request_confirmation #4ca7dce2d61d
@@ -419,6 +419,7 @@ hand_to_user #8af7d38230f9
 handle_obstacle #1a00c1e71b3c
 phone_observe #4afaedb18d15
 phone_list_elements #25a7cf83dc2b
+phone_screenshot #2a6931f8c091
 phone_tap #6627db23be95
 phone_scroll #7221d42e926c
 phone_swipe #7573c5a3249b
@@ -452,4 +453,4 @@ run_bundled_script #54259e6ba008
 read_file #e444edafa8ea
 write_file #6ee88b0765ca
 search_files #9ca7b1f1e9d4
-share_file #6315fd7b0c4d
+share_file #9fef2a15f837

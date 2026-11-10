@@ -77,7 +77,9 @@
 
 渠道任务只发一次受理确认,不转发运行阶段或步数。任务持久化登记后,以 `accepted:<运行编号>` 的 `Notice` 进入 `Outbox`,发送不阻塞任务执行;同一渠道消息编号的重投不建任务也不再确认,不同编号即使文字相同也分别登记,并在同一对话里按先后顺序执行。提问、确认与接管仍只走 `ChannelInteraction`。结果链路另记主循环完成到送出、Outbox 加发送、微信 HTTP 各段毫秒数,不记消息内容。
 
-本机渠道是 `LocalChannel`(`app/task/LocalChannel.kt`):本机界面加系统通知。`WechatChannel`(`app/wechat/`)是第二渠道:单账号、本人私聊文本,凭证加密保存在本机,独立前台服务长轮询,不建中继服务器,也不另建任务状态机。入站消息先写待处理账本再推进同步游标,`TaskCenter` 按渠道消息编号持久化去重后才确认;进程重启会先补交未登记消息。任务记录保存来源 `ChannelPeer`,提问、结果与 `RunRecovery` 都按来源路由。渠道接口 `Channel`、`ChannelGateway`(主人身份、提问编号对应、付款确认只能在能确认的渠道上做,`Channel.confirms`)在 `core/run/`;微信 `confirms=false`,付款确认与手机接管仍走手机。
+本机渠道是 `LocalChannel`(`app/task/LocalChannel.kt`):本机界面加系统通知。`WechatChannel`(`app/wechat/`)是第二渠道:单账号、本人私聊文字和图片,凭证加密保存在本机,独立前台服务长轮询,不建中继服务器,也不另建任务状态机。入站消息先写待处理账本再推进同步游标,`TaskCenter` 按渠道消息编号持久化去重后才确认;进程重启会先补交未登记消息。任务记录保存来源 `ChannelPeer`,提问、结果与 `RunRecovery` 都按来源路由。渠道接口 `Channel`、`ChannelGateway`(主人身份、提问编号对应、付款确认只能在能确认的渠道上做,`Channel.confirms`)在 `core/run/`;微信 `confirms=false`,付款确认与手机接管仍走手机。
+
+微信图片收发复用现有工作区附件和任务导出文件：入站图片整批下载、解密并导入后，附件路径与原话先记入 pending，再交任务；出站只发送本任务明确导出的图片，每张图片与文字都有独立的 Outbox 记录。截图工具可用 `savePath` 保存到工作区，再经 `share_file` 交付。图片限额、失败与恢复语义、验证入口见 [微信图片收发](wechat-images.md)。
 
 微信任务的自动亮屏与解锁另由 `WechatStore.allowUnlock` 授权,默认关闭;授权独立保存在 `unlock.json`,绑定当前 owner 与 bot,缺失、损坏或账号不符都按关闭处理。撤销只删除授权文件,不改消息账本;关闭接收写盘失败时也撤销授权,避免重启恢复可解锁状态。关闭接收时不能解锁,解绑或每次扫码重绑都会撤销授权,同账号重绑仍保留消息账本。`canUnlock` 每次核对当前绑定、微信渠道、主人与线程映射。`taskUnlockAuthorization`(`app/task/TaskUnlockPolicy.kt`)只为定时任务及开跑时已获授权的本人微信任务提供 `TaskGate` 解锁回调;其他来源或未授权任务仍等手动解锁。微信回调在实际解锁时动态复核授权,不会沿用已撤销的权限。此开关不修改 `DeviceAccessSettings.enabled` 或锁屏凭据,仍须满足已有本机设备访问许可,也不改变 `RunOrigin.Channel` 及付款、接管规则。
 

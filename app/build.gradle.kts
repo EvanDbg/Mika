@@ -18,8 +18,8 @@ android {
         applicationId = "com.wangzan101.mika"
         minSdk = 30
         targetSdk = 35
-        versionCode = 39
-        versionName = "0.1.38"
+        versionCode = 40
+        versionName = "0.1.39"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
         // Fork 的自动构建通过 tools/fork/fork-build.gradle 单独覆盖;普通构建仍跟随官方发布。

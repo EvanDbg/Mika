@@ -22,14 +22,14 @@
     <string name="wechat_state_waiting_detail">Konfirmasi otorisasi di WeChat</string>
     <string name="wechat_state_preparing_detail">Meminta kode QR…</string>
     <string name="wechat_how">Cara kerja</string>
-    <string name="wechat_how_body">Kirim teks di WeChat dan Mika akan bekerja di ponsel ini, lalu mengirim hasilnya kembali. Tidak perlu komputer atau server terpisah.</string>
+    <string name="wechat_how_body">Kirim teks atau gambar di WeChat dan Mika akan bekerja di ponsel ini, lalu mengirim hasil berupa teks dan gambar. Tidak perlu komputer atau server terpisah.</string>
     <string name="wechat_bind">Pindai kode QR untuk menautkan</string>
     <string name="wechat_bind_retry">Dapatkan kode QR baru</string>
     <string name="wechat_login_failed">Tidak dapat memulai penautan WeChat. Periksa jaringan lalu coba lagi.</string>
     <string name="wechat_qr_expired">Kode QR kedaluwarsa. Dapatkan kode baru lalu pindai.</string>
     <string name="wechat_action_failed">Perubahan tidak dapat disimpan. Coba lagi.</string>
     <string name="wechat_qr_title">Pindai dan konfirmasi di WeChat</string>
-    <string name="wechat_qr_help">Pindai di WeChat dan konfirmasi otorisasi. Kemudian buka chat pribadi bot dan kirim teks. Kode QR ini hanya untuk penautan ini; jangan diteruskan.</string>
+    <string name="wechat_qr_help">Pindai di WeChat dan konfirmasi otorisasi. Kemudian buka chat pribadi bot dan kirim teks atau gambar. Kode QR ini hanya untuk penautan ini; jangan diteruskan.</string>
     <string name="wechat_connection">Koneksi</string>
     <string name="wechat_receive">Terima tugas WeChat</string>
     <string name="wechat_receive_sub">Saat dimatikan, Mika berhenti membaca pesan baru</string>
@@ -46,13 +46,14 @@
     <string name="wechat_unbind_title">Hapus tautan WeChat?</string>
     <string name="wechat_unbind_body">Mika berhenti menerima pesan WeChat baru, menghapus informasi tautan yang tersimpan di ponsel ini, dan mencabut izin buka kunci otomatis untuk tugas WeChat.</string>
     <string name="wechat_capabilities">Versi pertama</string>
-    <string name="wechat_capability_text">Teks pribadi dan tugas nyata</string>
+    <string name="wechat_capability_text">Teks dan gambar pribadi serta tugas nyata</string>
     <string name="wechat_capability_replies">Pertanyaan, hasil, dan pemberitahuan Mika</string>
     <string name="wechat_capability_phone">Konfirmasi pembayaran dan pengambilalihan ponsel</string>
     <string name="wechat_capability_phone_sub">Tetap diselesaikan di ponsel ini</string>
-    <string name="wechat_capability_later">Gambar, suara, file, grup, dan beberapa akun</string>
+    <string name="wechat_capability_later">Suara, file, grup, dan beberapa akun</string>
     <string name="wechat_supported">Didukung</string>
     <string name="wechat_phone_only">Ponsel</string>
     <string name="wechat_later">Nanti</string>
     <string name="wechat_footer">Mika tidak memiliki server perantara, tetapi memerlukan internet. Pesan tetap melalui WeChat; model cloud menggunakan pengaturan jaringan saat ini. Kredensial bot dienkripsi dengan Android Keystore dan hanya disimpan di ponsel ini.</string>
+    <string name="wechat_image_receive_failed">Mika tidak dapat menerima gambar, jadi pesan ini tidak diteruskan ke tugas. Periksa koneksi dan kirim ulang hingga 8 gambar, masing-masing maksimal 10 MiB.</string>
 </resources>
