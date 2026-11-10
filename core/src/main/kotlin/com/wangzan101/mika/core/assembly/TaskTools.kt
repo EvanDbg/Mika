@@ -123,8 +123,14 @@ fun toolDispatcher(
     /** 用户配置并启用的通用网页搜索;为空时保持原有浏览器搜索路径。 */
     webSearch: com.wangzan101.mika.core.search.WebSearch? = null,
 ): ToolDispatcher {
+    val screenshotStore = sandbox?.takeIf {
+        it.status() !is com.wangzan101.mika.core.cap.sandbox.SandboxStatus.Unsupported &&
+            !runSpec.readOnly && runSpec.provenance.origin != com.wangzan101.mika.core.run.RunOrigin.Child &&
+            (runSpec.capabilities == null || "sandbox" in runSpec.capabilities)
+    }?.let { com.wangzan101.mika.core.cap.sandbox.WorkspaceScreenshots(it, workspace) }
     val config = ToolConfig(visionEnabled, skills, recordFrames, vision, inlineScreen, adaptiveVision, memory, profile, utterances, conversationId,
-        imageOps, scheduleTrigger, scheduleAdmin, runSpec, childHost, userScreens, personalSkills, selfConfig, runRecords, webSearch)
+        imageOps, scheduleTrigger, scheduleAdmin, runSpec, childHost, userScreens, personalSkills, selfConfig, runRecords, webSearch,
+        screenshotStore?.let { store -> { path, png -> store.save(path, png) } })
     val providers: List<CapabilityProvider> = listOf(
         object : CapabilityProvider {
             override val id = PHONE

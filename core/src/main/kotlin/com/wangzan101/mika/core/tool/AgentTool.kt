@@ -87,6 +87,8 @@ internal interface AgentTool : ToolInfo {
     /** 不动屏幕(沙箱一类):不过锁屏关卡、不进屏幕守卫,结果里的图是文件不是屏幕画面。 */
     val offScreen: Boolean get() = false
     val risk: Risk
+    /** A read tool may have an optional write mode; that invocation must use the execution entry point. */
+    fun readOnly(args: JsonObject): Boolean = readOnly
     /** 非界面能力可直接声明审批风险；界面工具仍按目标和当前观察判。 */
     val approvalRisk: ApprovalRisk? get() = null
     /** 按这次调用的参数声明的审批风险(同一个工具有的调用要问、有的不用,如 root 命令);默认同 [approvalRisk]。 */

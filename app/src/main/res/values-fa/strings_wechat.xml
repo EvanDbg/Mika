@@ -22,14 +22,14 @@
     <string name="wechat_state_waiting_detail">مجوز را در وی‌چت تأیید کنید</string>
     <string name="wechat_state_preparing_detail">در حال درخواست کد QR…</string>
     <string name="wechat_how">نحوهٔ کار</string>
-    <string name="wechat_how_body">در وی‌چت متن بفرستید تا میکا کار را در این گوشی انجام دهد و نتیجه را بازگرداند. رایانه یا سرور جداگانه لازم نیست.</string>
+    <string name="wechat_how_body">در وی‌چت متن یا تصویر بفرستید تا میکا کار را در این گوشی انجام دهد و نتیجه را به صورت متن و تصویر بازگرداند. رایانه یا سرور جداگانه لازم نیست.</string>
     <string name="wechat_bind">اسکن کد QR برای اتصال</string>
     <string name="wechat_bind_retry">دریافت کد QR جدید</string>
     <string name="wechat_login_failed">شروع اتصال وی‌چت ممکن نشد. شبکه را بررسی کنید و دوباره تلاش کنید.</string>
     <string name="wechat_qr_expired">کد QR منقضی شد. کد جدیدی دریافت و اسکن کنید.</string>
     <string name="wechat_action_failed">ذخیرهٔ تغییر ممکن نشد. دوباره تلاش کنید.</string>
     <string name="wechat_qr_title">اسکن و تأیید در وی‌چت</string>
-    <string name="wechat_qr_help">کد را در وی‌چت اسکن و مجوز را تأیید کنید. سپس گفتگوی خصوصی ربات را باز کنید و متن بفرستید. این کد QR فقط برای همین اتصال است؛ آن را برای دیگران نفرستید.</string>
+    <string name="wechat_qr_help">کد را در وی‌چت اسکن و مجوز را تأیید کنید. سپس گفتگوی خصوصی ربات را باز کنید و متن یا تصویر بفرستید. این کد QR فقط برای همین اتصال است؛ آن را برای دیگران نفرستید.</string>
     <string name="wechat_connection">اتصال</string>
     <string name="wechat_receive">دریافت کارهای وی‌چت</string>
     <string name="wechat_receive_sub">در حالت خاموش، میکا خواندن پیام‌های جدید را متوقف می‌کند</string>
@@ -42,11 +42,11 @@
     <string name="wechat_unbind_title">اتصال وی‌چت قطع شود؟</string>
     <string name="wechat_unbind_body">میکا دریافت پیام‌های جدید وی‌چت را متوقف می‌کند و اتصال ذخیره‌شده را از این گوشی حذف می‌کند. کارهای موجود ادامه می‌یابند.</string>
     <string name="wechat_capabilities">نسخهٔ اول</string>
-    <string name="wechat_capability_text">متن خصوصی و کارهای واقعی</string>
+    <string name="wechat_capability_text">متن و تصویر خصوصی و کارهای واقعی</string>
     <string name="wechat_capability_replies">پرسش‌ها، نتایج و اعلان‌های میکا</string>
     <string name="wechat_capability_phone">تأیید پرداخت و به دست گرفتن گوشی</string>
     <string name="wechat_capability_phone_sub">همچنان در همین گوشی انجام می‌شوند</string>
-    <string name="wechat_capability_later">تصویر، صدا، فایل، گروه و چند حساب</string>
+    <string name="wechat_capability_later">صدا، فایل، گروه و چند حساب</string>
     <string name="wechat_supported">پشتیبانی می‌شود</string>
     <string name="wechat_phone_only">گوشی</string>
     <string name="wechat_later">بعداً</string>
@@ -55,4 +55,5 @@
     <string name="wechat_allow_unlock_sub">فقط کارهای گفتگوی خصوصی وی‌چت حساب متصل‌شدهٔ خودتان می‌توانند تلاش کنند صفحهٔ این گوشی را روشن و قفل آن را باز کنند.</string>
     <string name="wechat_allow_unlock_foot">به‌طور پیش‌فرض خاموش است و با اتصال دوباره خاموش می‌شود. ابتدا «%3$s» را در «%1$s › %2$s» فعال کنید و اگر از PIN یا رمز قفل صفحه استفاده می‌کنید، آن را در همان‌جا ذخیره کنید. این کلید آن مجوز را تغییر نمی‌دهد و از اطلاعات قفل ارسال‌شده از طریق وی‌چت استفاده نمی‌کند.</string>
     <string name="wechat_unlock_failed">کار وی‌چت نتوانست صفحهٔ گوشی را روشن کند یا قفل آن را باز کند. قفل را دستی باز کنید، یا «اجازهٔ روشن کردن صفحه و باز کردن قفل توسط کارهای وی‌چت» را در تنظیمات وی‌چت میکا و «اجازهٔ روشن کردن صفحه و باز کردن قفل از راه دور» و اطلاعات قفل ذخیره‌شده را در تنظیمات › اتصال رایانه بررسی کنید.</string>
+    <string name="wechat_image_receive_failed">میکا نتوانست تصاویر را دریافت کند، بنابراین این پیام به کار ارسال نشد. اتصال را بررسی کنید و حداکثر ۸ تصویر، هرکدام تا ۱۰ MiB، دوباره بفرستید.</string>
 </resources>

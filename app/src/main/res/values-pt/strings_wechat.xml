@@ -22,14 +22,14 @@
     <string name="wechat_state_waiting_detail">Confirme a autorização no WeChat</string>
     <string name="wechat_state_preparing_detail">Solicitando um código QR…</string>
     <string name="wechat_how">Como funciona</string>
-    <string name="wechat_how_body">Envie texto pelo WeChat e o Mika trabalha neste telefone, depois devolve o resultado. Não precisa de computador nem de outro servidor.</string>
+    <string name="wechat_how_body">Envie texto ou imagens pelo WeChat e o Mika trabalha neste telefone, devolvendo resultados em texto e imagens. Não precisa de computador nem de outro servidor.</string>
     <string name="wechat_bind">Ler código QR para vincular</string>
     <string name="wechat_bind_retry">Obter um novo código QR</string>
     <string name="wechat_login_failed">Não foi possível iniciar a vinculação do WeChat. Verifique a rede e tente novamente.</string>
     <string name="wechat_qr_expired">O código QR expirou. Obtenha um novo e faça a leitura.</string>
     <string name="wechat_action_failed">Não foi possível salvar a alteração. Tente novamente.</string>
     <string name="wechat_qr_title">Leia e confirme no WeChat</string>
-    <string name="wechat_qr_help">Leia no WeChat e confirme a autorização. Depois, abra a conversa privada do bot e envie texto. Este código QR serve apenas para esta vinculação; não o encaminhe.</string>
+    <string name="wechat_qr_help">Leia no WeChat e confirme a autorização. Depois, abra a conversa privada do bot e envie texto ou imagens. Este código QR serve apenas para esta vinculação; não o encaminhe.</string>
     <string name="wechat_connection">Conexão</string>
     <string name="wechat_receive">Receber tarefas do WeChat</string>
     <string name="wechat_receive_sub">Quando desativado, o Mika para de ler novas mensagens</string>
@@ -46,13 +46,14 @@
     <string name="wechat_unbind_title">Desvincular o WeChat?</string>
     <string name="wechat_unbind_body">O Mika para de receber novas mensagens do WeChat, remove a vinculação salva neste telefone e revoga a permissão de desbloqueio automático para tarefas do WeChat.</string>
     <string name="wechat_capabilities">Primeira versão</string>
-    <string name="wechat_capability_text">Texto privado e tarefas reais</string>
+    <string name="wechat_capability_text">Texto e imagens privados e tarefas reais</string>
     <string name="wechat_capability_replies">Perguntas, resultados e avisos do Mika</string>
     <string name="wechat_capability_phone">Confirmações de pagamento e controle do telefone</string>
     <string name="wechat_capability_phone_sub">Ainda concluídos neste telefone</string>
-    <string name="wechat_capability_later">Imagens, voz, arquivos, grupos e várias contas</string>
+    <string name="wechat_capability_later">Voz, arquivos, grupos e várias contas</string>
     <string name="wechat_supported">Compatível</string>
     <string name="wechat_phone_only">Telefone</string>
     <string name="wechat_later">Depois</string>
     <string name="wechat_footer">O Mika não tem servidor de retransmissão, mas precisa de internet. As mensagens ainda passam pelo WeChat; os modelos na nuvem usam as configurações de rede atuais. As credenciais do bot são criptografadas com o Android Keystore e ficam somente neste telefone.</string>
+    <string name="wechat_image_receive_failed">O Mika não conseguiu receber as imagens, então esta mensagem não foi enviada a uma tarefa. Verifique a conexão e reenvie até 8 imagens, com no máximo 10 MiB cada.</string>
 </resources>

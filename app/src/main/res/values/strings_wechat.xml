@@ -22,14 +22,14 @@
     <string name="wechat_state_waiting_detail">Confirm authorization in WeChat</string>
     <string name="wechat_state_preparing_detail">Requesting a QR code…</string>
     <string name="wechat_how">How it works</string>
-    <string name="wechat_how_body">Send text in WeChat and Mika gets work done on this phone, then sends the result back. No computer or separate server needed.</string>
+    <string name="wechat_how_body">Send text or images in WeChat and Mika gets work done on this phone, then sends text and image results back. No computer or separate server needed.</string>
     <string name="wechat_bind">Scan QR code to connect</string>
     <string name="wechat_bind_retry">Get a new QR code</string>
     <string name="wechat_login_failed">Couldn’t start WeChat binding. Check your network and try again.</string>
     <string name="wechat_qr_expired">The QR code expired. Get a new one and scan it.</string>
     <string name="wechat_action_failed">The change couldn’t be saved. Try again.</string>
     <string name="wechat_qr_title">Scan and confirm in WeChat</string>
-    <string name="wechat_qr_help">Scan in WeChat and confirm authorization. Then open the bot’s private chat and send text. This QR code is only for this binding; don’t forward it.</string>
+    <string name="wechat_qr_help">Scan in WeChat and confirm authorization. Then open the bot’s private chat and send text or images. This QR code is only for this binding; don’t forward it.</string>
     <string name="wechat_connection">Connection</string>
     <string name="wechat_receive">Receive WeChat tasks</string>
     <string name="wechat_receive_sub">When off, Mika stops reading new messages</string>
@@ -46,13 +46,14 @@
     <string name="wechat_unbind_title">Unlink WeChat?</string>
     <string name="wechat_unbind_body">Mika will stop receiving new WeChat messages, remove the saved binding from this phone, and revoke permission for WeChat tasks to unlock automatically.</string>
     <string name="wechat_capabilities">First version</string>
-    <string name="wechat_capability_text">Private text and real tasks</string>
+    <string name="wechat_capability_text">Private text, images and real tasks</string>
     <string name="wechat_capability_replies">Mika questions, results &amp; notices</string>
     <string name="wechat_capability_phone">Payment confirmations &amp; phone takeover</string>
     <string name="wechat_capability_phone_sub">Still completed on this phone</string>
-    <string name="wechat_capability_later">Images, voice, files, groups &amp; multiple accounts</string>
+    <string name="wechat_capability_later">Voice, files, groups &amp; multiple accounts</string>
     <string name="wechat_supported">Supported</string>
     <string name="wechat_phone_only">Phone</string>
     <string name="wechat_later">Later</string>
     <string name="wechat_footer">Mika has no relay server, but an internet connection is required. Messages still pass through WeChat; cloud models use the existing network settings. Bot credentials are encrypted with Android Keystore and stored only on this phone.</string>
+    <string name="wechat_image_receive_failed">Mika could not receive the images, so this message was not passed to a task. Check the connection and resend up to 8 images, at most 10 MiB each.</string>
 </resources>
