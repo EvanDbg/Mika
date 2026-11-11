@@ -24,6 +24,7 @@ import com.wangzan101.mika.core.trigger.ConditionOutcome
 import com.wangzan101.mika.core.trigger.TriggerSnapshot
 import com.wangzan101.mika.core.trigger.TriggerWindowState
 import com.wangzan101.mika.core.trigger.rescheduledTo
+import com.wangzan101.mika.core.trigger.EditedSchedule
 import com.wangzan101.mika.core.trigger.afterCheck
 import com.wangzan101.mika.core.trigger.conditionCheckGoal
 import com.wangzan101.mika.core.trigger.revertFire
@@ -49,6 +50,15 @@ object TriggerRuntime {
         val notified = ExactAlarmGuide.shouldPrompt(granted, prefs.getBoolean(PROMPTED, false)) && promptExactAlarm(context)
         if (notified) prefs.edit().putBoolean(PROMPTED, true).apply()
         return Scheduled(granted, notified)
+    }
+
+    /** 模型编辑仍限本对话；在同一锁内复核后保存，不能把已删除或换了归属的计划写回来。 */
+    @Synchronized fun edit(context: Context, threadId: String, id: String,
+        change: (TriggerDefinition) -> TriggerDefinition): EditedSchedule? {
+        val current = store(context).get(id)?.takeIf { it.threadId == threadId } ?: return null
+        val plan = change(current)
+        if (plan.id != id || plan.threadId != threadId) return null
+        return EditedSchedule(plan, schedule(context, plan, replaceExisting = true))
     }
 
     /** 系统的「闹钟和提醒」授权页(安卓 12 起)。 */

@@ -122,6 +122,7 @@ fun toolDispatcher(
     root: RootPort? = null,
     /** 用户配置并启用的通用网页搜索;为空时保持原有浏览器搜索路径。 */
     webSearch: com.wangzan101.mika.core.search.WebSearch? = null,
+    phoneCalls: com.wangzan101.mika.core.calls.PhoneCallPort? = null,
 ): ToolDispatcher {
     val screenshotStore = sandbox?.takeIf {
         it.status() !is com.wangzan101.mika.core.cap.sandbox.SandboxStatus.Unsupported &&
@@ -149,6 +150,11 @@ fun toolDispatcher(
         object : CapabilityProvider {
             override val id = RootCapability.KEY.name
             override fun open(spec: RunSpec) = RootCapability(port)
+        }
+    }, phoneCalls?.let { port ->
+        object : CapabilityProvider {
+            override val id = "calls"
+            override fun open(spec: RunSpec) = com.wangzan101.mika.core.calls.PhoneCallsCapability(port)
         }
     }) + mcpServers.map(::McpClientProvider)
     return RunAssembler(providers).assemble(runSpec, config, stableRefs, FORMER_PREFIX, RENAMED, RETIRED, MOVED)
@@ -196,7 +202,7 @@ fun recordedTools(): ToolIndex = legacyNames().let { legacy -> ToolIndex(allTool
 
 /** Mika 所有可能提供的工具,按发给模型的顺序。 */
 internal fun allTools(): List<AgentTool> =
-    GeneralGroup.tools + PhoneCapability.tools() + WebGroup.tools + SandboxGroup.tools + RootGroup.tools
+    GeneralGroup.tools + PhoneCapability.tools() + WebGroup.tools + SandboxGroup.tools + RootGroup.tools + com.wangzan101.mika.core.calls.callAgentTools
 
 /** Mika 所有可能提供的工具的声明。 */
 fun knownTools(): ToolIndex = ToolIndex(allTools())

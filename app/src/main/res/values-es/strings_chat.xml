@@ -14,6 +14,10 @@
     <string name="chat_example_replace_body">La tarea recomendada reemplazará lo que ya escribiste.</string>
     <string name="chat_example_replace_action">Reemplazar borrador</string>
     <string name="recommendations_title">Tareas recomendadas</string>
+    <string name="recommendations_drag">Arrastra para cambiar el orden</string>
+    <string name="recommendations_drag_hint">Arrastra el control para cambiar el orden.</string>
+    <string name="recommendations_move_up">Subir</string>
+    <string name="recommendations_move_down">Bajar</string>
     <string name="recommendations_sub">Administra las tareas y los prompts de la pantalla de inicio</string>
     <string name="recommendations_add">Añadir tarea recomendada</string>
     <string name="recommendations_edit">Editar tarea recomendada</string>
@@ -93,6 +97,41 @@
         <item quantity="many">Se conservarán %1$d tareas programadas de este chat.</item>
         <item quantity="other">Se conservarán %1$d tareas programadas de este chat.</item>
     </plurals>
+    <string name="drawer_select">Seleccionar</string>
+    <string name="drawer_selected_count">%1$d seleccionados</string>
+    <string name="drawer_select_all">Seleccionar todo</string>
+    <string name="drawer_select_none">Quitar selección</string>
+    <string name="drawer_delete_many_title">¿Eliminar los chats seleccionados?</string>
+    <plurals name="drawer_delete_many_body">
+        <item quantity="one">Se eliminará %1$d chat y los archivos que contiene.</item>
+        <item quantity="many">Se eliminarán %1$d chats y los archivos que contienen.</item>
+        <item quantity="other">Se eliminarán %1$d chats y los archivos que contienen.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_running">
+        <item quantity="one">Se detendrá %1$d tarea en ejecución.</item>
+        <item quantity="many">Se detendrán %1$d tareas en ejecución.</item>
+        <item quantity="other">Se detendrán %1$d tareas en ejecución.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_schedules">
+        <item quantity="one">Se conservará %1$d tarea programada.</item>
+        <item quantity="many">Se conservarán %1$d tareas programadas.</item>
+        <item quantity="other">Se conservarán %1$d tareas programadas.</item>
+    </plurals>
+    <plurals name="drawer_delete_progress">
+        <item quantity="one">Eliminando %1$d chat…</item>
+        <item quantity="many">Eliminando %1$d chats…</item>
+        <item quantity="other">Eliminando %1$d chats…</item>
+    </plurals>
+    <plurals name="drawer_delete_done">
+        <item quantity="one">Se eliminó %1$d chat.</item>
+        <item quantity="many">Se eliminaron %1$d chats.</item>
+        <item quantity="other">Se eliminaron %1$d chats.</item>
+    </plurals>
+    <plurals name="drawer_delete_partial">
+        <item quantity="one">Se eliminó %1$d chat; %2$d falló.</item>
+        <item quantity="many">Se eliminaron %1$d chats; %2$d fallaron.</item>
+        <item quantity="other">Se eliminaron %1$d chats; %2$d fallaron.</item>
+    </plurals>
     <string name="drawer_actions">Opciones del chat</string>
     <string name="drawer_rename">Cambiar nombre</string>
     <string name="drawer_rename_title">Cambiar el nombre del chat</string>
@@ -133,6 +172,7 @@
     </plurals>
     <string name="attach_add">Añadir adjunto</string>
     <string name="attach_close">Cerrar el panel de adjuntos</string>
+    <string name="attach_blocked_running">No puedes añadir adjuntos mientras se ejecuta una tarea; cambia al modo de cola para adjuntar</string>
     <string name="attach_camera">Cámara</string>
     <string name="attach_album">Fotos</string>
     <string name="attach_files">Archivos</string>

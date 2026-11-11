@@ -211,7 +211,7 @@
 
 - 基于 PRoot 和 Alpine 3.22 的运行环境,随 APK 自带,App 启动时在后台离线解包(`app/cap/sandbox/RuntimePreparer.kt`、`RootfsInstaller.kt`);Mika 升级后自动重新解包。沙箱程序只有 arm64 版本,其他设备显示「此设备不支持(需要 arm64)」,模型也被告知不用这组工具。来源与构建见 `tools/sandbox/README.md`。
 - 每个对话一个工作区,沙箱里是 `/workspace`,跨消息保留;聊天里附加的文件放进 `/workspace/inbox/`;`share_file` 把文件存到手机的「下载/Mika」并在对话里显示为文件卡片;点卡片时网页、Markdown、PDF、图片和文本类文件在 App 里的查看页打开(`FileViewerActivity`,见第 15 节),其余交给系统里能打开它的 App。
-- 默认断网,设置 → 高级 → 文件与计算环境里「允许脚本联网」打开后才联网;设备无法隔离网络时,只有打开「允许脚本联网」才能运行(`AndroidSandbox`、`AdvancedSection` 的提示)。每个任务有累计运行时间预算,同一条命令反复失败会被叫停(`core/cap/sandbox/SandboxGuard.kt`)。
+- 默认联网,设置 → 高级 → 文件与计算环境里关闭「允许脚本联网」后才断网;设备无法隔离网络时,只有打开「允许脚本联网」才能运行(`AndroidSandbox`、`AdvancedSection` 的提示)。每个任务有累计运行时间预算,同一条命令反复失败会被叫停(`core/cap/sandbox/SandboxGuard.kt`)。
 - **网络代理**:用的是设置 › 高级与其他的「网络代理」(见第 12 节「网络代理」),这一页不再重复显示。只在允许联网的命令里给(`AndroidSandbox` 不联网时传空),经 `ProcRunner.env` 放进 `http_proxy`/`https_proxy`/`all_proxy`(大小写各一份)和 `no_proxy`(`LocalHosts.NO_PROXY`:本机、局域网网段和后缀直连);`https://` 代理只有这里的命令用得上。
 - **已用空间**:同一页下面一组(`SandboxUsageReader`,`app/cap/sandbox/SandboxUsage.kt`):合计、运行环境、技能、对话的工作区各占多少,再按对话列出工作区(按对话标题,对话已删掉的写「已删除的对话」,大的在前)。大小按目录树里的普通文件算,不跟进链接(`AndroidSandbox.treeBytes`)。点一行先确认再清掉那个工作区,最后一行清空所有;和删对话一样经文件闸门按句柄删、不跟进链接,拿着树锁的独占许可(`SandboxDirs.exclusiveWrite`,删、换整棵目录都走它)、和命令、导入、重置互斥,拿到许可后才查对话忙不忙(清空所有时每删一个前都再查);删大目录的这段时间里所有对话的沙箱命令都要等;有任务在跑或排队的对话写明「暂时不能清理」,清空所有时跳过它们。运行环境和技能随 App 自带,不在这里清(要从头准备用「重置运行环境」)。容器里不挂手机存储。
 - 工具:`run_command`、`run_bundled_script`(运行知识、技能自带的脚本,见 `docs/dev/skill-scripts.md`)、`read_file`、`write_file`、`search_files`、`share_file`。
@@ -293,13 +293,13 @@
 
 ## 10. 定时与条件触发
 
-- **工具**:`schedule_task`(`core/general/ScheduleTask.kt`),`op` = create(默认)/ list / pause / resume / delete / run_now / reschedule。只在对话界面发起的运行里提供。恢复认领过(跑过或正在跑)的一次性计划时(`TriggerEngine.setEnabled`)不改,报 `already_ran`(计划页对这种计划也不给开关),要再跑用 reschedule 或 run_now。
-- **时间规则**(`TriggerDefinition`,`core/trigger/Triggers.kt`):一次性(`at`);固定间隔(`intervalMinutes`,错过多次合并成一次并记下错过几次);按当地时间每天或每周几(`repeatAt` + `repeatZone` + `weekdays`),跨夏令时保持钟点不变。
+- **工具**:`schedule_task`(`core/general/ScheduleTask.kt`),`op` = create(默认)/ list / edit / pause / resume / delete / run_now / reschedule。edit 复用 PlanDraft/editedTrigger 校验，缺省字段保留，空字符串/空列表或0用于显式清空；宿主在同一锁内复核对话归属，保留计划ID和执行账本，返回接下来三次时间。只在对话界面发起的运行里提供。恢复认领过(跑过或正在跑)的一次性计划时(`TriggerEngine.setEnabled`)不改,报 `already_ran`(计划页对这种计划也不给开关),要再跑用 reschedule 或 run_now。
+- **时间规则**(`TriggerDefinition`,`core/trigger/Triggers.kt`):一次性(`at`);固定间隔(`intervalMinutes`,错过多次合并成一次并记下错过几次);按当地时间每天或每周几(`repeatAt` 或多钟点 `repeatTimes` + `repeatZone` + `weekdays`),跨夏令时保持钟点不变。多钟点统一排序去重，预览和推进共用 nextCalendarAt；夏令时跳时让两个钟点落在同一瞬间时只执行一次。
 - **三种做法**:固定提醒(`reminder`)到点直接送达,不调模型;办事任务到点作为无人在场的 Run 执行;带 `condition` 的先用只读的网页和沙箱检查条件,结果结构化为 `ConditionOutcome`(`core/trigger/ConditionOutcome.kt`),检查出错不算「不满足」。检查目标由 `conditionCheckGoal`(`core/trigger/ConditionCheck.kt`)生成:条件原文、比较基准、只输出 `{"met","value","evidence"}` 的要求;`value` 是下次拿来比的关键值(去掉格式字符、空白合成一个空格,至多 80 字);基准写进检查目标时按不可信内容套标记(`Untrusted`)。基准(`baselineValue`)是上次派发动作时的值,从没派发过时是第一次检查到的值。是否执行由 `afterCheck` 决定:`notifyWhen` 为 `ConditionNotify.BecomesMet`(默认)时只在条件从不满足变为满足时执行,`ConditionNotify.EachTimeMet` 时每次满足都执行;设了 `cooldownMs` 时,冷却从上次执行动作那次检查的计划时间算起(检查跑得快慢不影响),冷却期内想执行的这次跳过、不补跑(`lastConditionMet` 不动),冷却结束后的检查满足照样执行。跳过的时段记下原因 `condition_not_met`、`condition_unchanged` 或 `cooldown`。动作同步启动失败时 `revertFire` 把派发状态退回检查前;检查前已有基准时基准也退回,没有时留着这次记下的。动作已经登记或开始之后,无论成功、失败还是取消都保留这次派发基准,不自动重放同一变化。检查运行的目标是生成的检查指令;记进对话的那一轮(检查出错、排队时被取消、中断后的善后)和进度通知用用户写的条件原文(`StoredRun.userText`),不把检查指令记成用户的话。`whenIdle` 让它等到没有任务在跑时再做。
-- **调度**(`app/task/TriggerRuntime.kt`):系统闹钟只是唤醒信号,`FileTriggerStore` 是真源。主计划文件保持旧 schema,新增的观测值、基准、通知方式和冷却状态放在旁边的 `.conditions` sidecar;旧版本仍能读主计划,sidecar 损坏只丢掉扩展状态,不会清空整份计划。派发前先写好下次时间和这一次的窗口(编号 = 触发器 + 到期时间),同一窗口不会派发两次。这一次的窗口已经记过账的计划不再认领,`rearm` 也不为它排闹钟(判断条件和认领时查账本的条件相同,见 `slotTaken`):按过期的到期时间排就是马上响,响了又认领不了,会一直空转。能用精确闹钟就用,没有权限时第一次会发通知引导用户去系统设置打开,`schedule_task` 的结果也告诉模型「可能不准时」;计划页显示提示。开机、改时间、改时区、精确闹钟权限变化时重新布置(`app/setup/BootRestoreReceiver.kt`),App 启动时也会。设备时区记在 `triggers` 里(`TriggerRuntime.syncTimeZone`):改时区时、App 启动时(关着时改了时区也补上;第一次只记下当前的)和记下的比,变了就把跟随旧设备时区的当地时间计划改到新时区重算(`TriggerEngine.rezone`),明确钉了别的时区的不动。
+- **调度**(`app/task/TriggerRuntime.kt`):系统闹钟只是唤醒信号,`FileTriggerStore` 是真源。主计划文件保持旧 schema,新增的观测值、基准、通知方式、冷却和多钟点列表放在旁边的 `.conditions` sidecar;旧版本仍能读主计划（多钟点降级为首个钟点）,sidecar 损坏只丢掉扩展状态,不会清空整份计划。派发前先写好下次时间和这一次的窗口(编号 = 触发器 + 到期时间),同一窗口不会派发两次。这一次的窗口已经记过账的计划不再认领,`rearm` 也不为它排闹钟(判断条件和认领时查账本的条件相同,见 `slotTaken`):按过期的到期时间排就是马上响,响了又认领不了,会一直空转。能用精确闹钟就用,没有权限时第一次会发通知引导用户去系统设置打开,`schedule_task` 的结果也告诉模型「可能不准时」;计划页显示提示。开机、改时间、改时区、精确闹钟权限变化时重新布置(`app/setup/BootRestoreReceiver.kt`),App 启动时也会。设备时区记在 `triggers` 里(`TriggerRuntime.syncTimeZone`):改时区时、App 启动时(关着时改了时区也补上;第一次只记下当前的)和记下的比,变了就把跟随旧设备时区的当地时间计划改到新时区重算(`TriggerEngine.rezone`),明确钉了别的时区的不动。
 - **结果回原对话**:到点的任务就在创建它的对话里运行,结果、提醒和失败说明都写回那个对话,通知点开就是它。
 - **进程中途被杀**:提醒重新送达(按编号去重);其他已认领的窗口标为结果不明,在原对话里说明并通知「Mika 不会自动重复操作」。
-- **计划页**(`app/ui/PlansScreen.kt`):分「进行中」「已停用」两段,每条三行(做什么、重复规则与下次时间或状态、上次结果:跳过的分「条件未满足」「条件未变化」「冷却期内」,那次检查记下了值时一起显示),右边开关即暂停与恢复;点一行升起操作面板:看对话、立即执行、改时间、删除。
+- **计划页**(`app/ui/PlansScreen.kt`):分「进行中」「已停用」两段,每条三行(做什么、重复规则与下次时间或状态、上次结果:跳过的分「条件未满足」「条件未变化」「冷却期内」,那次检查记下了值时一起显示),右边开关即暂停与恢复;点一行升起操作面板:看对话、立即执行、编辑、删除；右上角可以直接新建。编辑器的每天/每周时刻支持逗号分隔，并预览接下来三次。
 
 ## 11. 知识与技能
 

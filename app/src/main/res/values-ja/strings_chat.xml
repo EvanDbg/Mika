@@ -14,6 +14,10 @@
     <string name="chat_example_replace_body">おすすめのタスクで、入力済みの内容が置き換えられます。</string>
     <string name="chat_example_replace_action">下書きを置き換える</string>
     <string name="recommendations_title">おすすめタスク</string>
+    <string name="recommendations_drag">ドラッグして順序を変更</string>
+    <string name="recommendations_drag_hint">ハンドルをドラッグして表示順を変更できます。</string>
+    <string name="recommendations_move_up">上に移動</string>
+    <string name="recommendations_move_down">下に移動</string>
     <string name="recommendations_sub">ホームに表示するタスクとプロンプトを管理</string>
     <string name="recommendations_add">おすすめタスクを追加</string>
     <string name="recommendations_edit">おすすめタスクを編集</string>
@@ -89,6 +93,29 @@
     <plurals name="drawer_delete_schedules">
         <item quantity="other">このチャットのスケジュールされたタスク %1$d 件は保持されます。</item>
     </plurals>
+    <string name="drawer_select">選択</string>
+    <string name="drawer_selected_count">%1$d 件選択中</string>
+    <string name="drawer_select_all">すべて選択</string>
+    <string name="drawer_select_none">選択を解除</string>
+    <string name="drawer_delete_many_title">選択したチャットを削除しますか？</string>
+    <plurals name="drawer_delete_many_body">
+        <item quantity="other">選択した %1$d 件のチャットと、その中のファイルが削除されます。</item>
+    </plurals>
+    <plurals name="drawer_delete_many_running">
+        <item quantity="other">実行中のタスク %1$d 件が停止します。</item>
+    </plurals>
+    <plurals name="drawer_delete_many_schedules">
+        <item quantity="other">その中のスケジュールされたタスク %1$d 件は保持されます。</item>
+    </plurals>
+    <plurals name="drawer_delete_progress">
+        <item quantity="other">%1$d 件のチャットを削除しています…</item>
+    </plurals>
+    <plurals name="drawer_delete_done">
+        <item quantity="other">%1$d 件のチャットを削除しました。</item>
+    </plurals>
+    <plurals name="drawer_delete_partial">
+        <item quantity="other">%1$d 件のチャットを削除しました。%2$d 件は失敗しました。</item>
+    </plurals>
     <string name="drawer_actions">チャットのオプション</string>
     <string name="drawer_rename">名前を変更</string>
     <string name="drawer_rename_title">チャットの名前を変更</string>
@@ -125,6 +152,7 @@
     </plurals>
     <string name="attach_add">添付を追加</string>
     <string name="attach_close">添付パネルを閉じる</string>
+    <string name="attach_blocked_running">タスク実行中は添付を追加できません。先に待機モードに切り替えてください</string>
     <string name="attach_camera">カメラ</string>
     <string name="attach_album">写真</string>
     <string name="attach_files">ファイル</string>

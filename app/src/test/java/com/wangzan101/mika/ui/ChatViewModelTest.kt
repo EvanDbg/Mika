@@ -11,6 +11,7 @@ import com.wangzan101.mika.chat.RetryAttachmentResult
 import com.wangzan101.mika.chat.RetryAttachmentStatus
 import com.wangzan101.mika.chat.ConversationStore
 import com.wangzan101.mika.chat.CurrentChat
+import com.wangzan101.mika.chat.DeleteBatch
 import com.wangzan101.mika.chat.SharedDraft
 import com.wangzan101.mika.chat.SharedDraftStore
 import com.wangzan101.mika.confirm.ConfirmationNotifier
@@ -1693,6 +1694,33 @@ class ChatViewModelTest {
         runCurrent()
         assertEquals("b", vm.ui.value.conversationId)
         assertEquals(listOf("订票"), vm.ui.value.exchanges.map { it.goal })
+    }
+
+    /** 批量删除:几条一起删,进度一条条往前走;一条删不掉不挡后面的,最后照实说几条失败。 */
+    @Test fun deletingABatchReportsProgressAndFailures() = runTest {
+        val store = ConversationStore(tmp.newFolder())
+        listOf("a", "b", "c").forEach { store.append(it, Turn("问题 $it", "好", "succeeded")) }
+        val removed = mutableListOf<String>()
+        val vm = ChatViewModel(
+            backgroundScope, state, stage, actions, store,
+            removeConversation = { id ->
+                if (id == "b") error("storage full")
+                removed += id
+                store.delete(id)
+            },
+        ).also { runCurrent() }
+
+        vm.deleteConversations(listOf("a", "b", "c"))
+        // 提交后当场从侧栏拿掉,不等后台删完
+        assertEquals(setOf("a", "b", "c"), vm.deleted.value)
+        assertEquals(DeleteBatch(3, 0, 0), vm.deleteBatch.value)
+
+        runCurrent()
+        assertEquals(listOf("a", "c"), removed)
+        assertEquals(DeleteBatch(3, 3, 1), vm.deleteBatch.value)
+        assertTrue(vm.deleteBatch.value!!.finished)
+        vm.clearDeleteBatch()
+        assertNull(vm.deleteBatch.value)
     }
 
     /** 侧栏里改名、置顶:存下来,侧栏按存下的重排(置顶的在「置顶」一段,最近置顶的在前);删掉的对话不再改。 */

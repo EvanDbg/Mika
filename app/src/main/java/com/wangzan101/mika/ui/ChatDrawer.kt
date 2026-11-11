@@ -9,8 +9,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -18,11 +20,13 @@ import com.wangzan101.mika.ui.components.MikaDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
+import com.wangzan101.mika.chat.DeleteBatch
 import com.wangzan101.mika.chat.DeleteImpact
 import com.wangzan101.mika.i18n.trPlural
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -63,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -253,8 +258,26 @@ fun ChatDrawer(
     aboutDot: Boolean = false,
     /** 长按一条存过的对话:在它原地弹出操作菜单(置顶、改名、删除);带上那一行在窗口里的位置和大小。 */
     onActions: (DrawerConversation, Rect) -> Unit = { _, _ -> },
+    /** 多选模式:每行左边出现勾选框,点一行是勾选;底部换成「已选 N 条 / 全选 / 删除」。 */
+    selecting: Boolean = false,
+    selected: Set<String> = emptySet(),
+    onStartSelect: () -> Unit = {},
+    onExitSelect: () -> Unit = {},
+    onToggleSelect: (DrawerConversation) -> Unit = {},
+    onSelectAll: () -> Unit = {},
+    onDeleteSelected: () -> Unit = {},
+    /** 批量删除的进度和结果;在底部显示,删完过几秒由外面清掉。 */
+    deleteBatch: DeleteBatch? = null,
 ) {
     val c = MikaTheme.colors
+    // 能勾的就是列在侧栏里、已经存过的对话(还没存过的当前草稿没有编号,删不了)
+    val selectableIds = remember(sections) {
+        (sections.running + sections.pinned + sections.recent).mapNotNull { it.id }.toSet()
+    }
+    val selectedCount = selected.count { it in selectableIds }
+    val allSelected = selectableIds.isNotEmpty() && selectedCount == selectableIds.size
+    // 搜索时把几个入口收起来，把高度让给结果;清空后原样回来。搜索框在入口上面，位置不跳
+    val searchActive = canSearch && !selecting && query.isNotBlank()
     Column(
         Modifier.fillMaxHeight().widthIn(max = DrawerWidth).fillMaxWidth()
             .clip(DrawerShape).background(c.bg, DrawerShape)
@@ -263,23 +286,28 @@ fun ChatDrawer(
     ) {
         val (state, ok) = readiness(check)
         Row(
-            Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             MikaLogo(36.dp, corner = 10.dp)
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text("Mika", style = MikaType.Title, color = c.ink)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.size(6.dp).background(if (ok) c.ok else c.warnSolid, CircleShape))
                     Text(state, style = MikaType.Hint, fontWeight = FontWeight.Medium, color = c.ink3)
                 }
             }
+            // 多选从顶上这个按钮进;进去以后这里换成「取消」,返回键同样能退出
+            when {
+                selecting -> HeaderAction(stringResource(R.string.cancel), "drawer-select-cancel", c.ink2, onExitSelect)
+                selectableIds.isNotEmpty() && !searchActive ->
+                    HeaderAction(stringResource(R.string.drawer_select), "drawer-select", c.accent, onStartSelect)
+            }
         }
-        if (canSearch) DrawerSearchField(query, onQueryChange)
-        // 搜索时把几个入口收起来，把高度让给结果;清空后原样回来。搜索框在入口上面，位置不跳。
-        val searchActive = canSearch && query.isNotBlank()
-        if (!searchActive) Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+        if (canSearch && !selecting) DrawerSearchField(query, onQueryChange)
+        // 搜索、多选时把几个入口收起来，把高度让给列表;退出后原样回来
+        if (!searchActive && !selecting) Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
             NavEntry(MikaIcons.New, stringResource(R.string.chat_new), enabled = canSwitch, onClick = onNew)
             NavEntry(MikaIcons.Clock, stringResource(R.string.drawer_plans), onClick = onPlans)
             NavEntry(MikaIcons.Heart, stringResource(R.string.memory_and_skills), onClick = onMemory)
@@ -325,7 +353,9 @@ fun ChatDrawer(
                 if (sections.running.isNotEmpty()) {
                     // 「进行中」这一段的右边进「后台屏」页:看每个在跑的任务正在用哪个 App、实时画面
                     item("h-running") { RunningLabel(onScreens) }
-                    items(sections.running, key = { "r-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                    items(sections.running, key = { "r-${it.id}" }) {
+                        ConversationEntry(it, onOpen, onActions, selecting = selecting, selected = it.id in selected, onToggleSelect = onToggleSelect)
+                    }
                 }
                 // 换不了对话时的说明放在第一段存着的对话(置顶或最近)上面
                 val busyNote: LazyListScope.() -> Unit = {
@@ -341,25 +371,92 @@ fun ChatDrawer(
                 if (sections.pinned.isNotEmpty()) {
                     item("h-pinned") { SectionLabel(stringResource(R.string.drawer_pinned)) }
                     busyNote()
-                    items(sections.pinned, key = { "p-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                    items(sections.pinned, key = { "p-${it.id}" }) {
+                        ConversationEntry(it, onOpen, onActions, selecting = selecting, selected = it.id in selected, onToggleSelect = onToggleSelect)
+                    }
                 }
                 if (sections.recent.isNotEmpty()) {
                     item("h-recent") { SectionLabel(stringResource(R.string.drawer_recent)) }
                     if (sections.pinned.isEmpty()) busyNote()
-                    items(sections.recent, key = { "c-${it.id}" }) { ConversationEntry(it, onOpen, onActions) }
+                    items(sections.recent, key = { "c-${it.id}" }) {
+                        ConversationEntry(it, onOpen, onActions, selecting = selecting, selected = it.id in selected, onToggleSelect = onToggleSelect)
+                    }
                 }
             }
             item("end") { Box(Modifier.height(12.dp)) }
         }
-        // 设置和关于并排固定在侧栏最底下,对话再多也不被挤走:设置靠左,关于靠右,中间留空
-        Row(
-            Modifier.fillMaxWidth().drawBehind { drawLine(c.hair, Offset(0f, 0f), Offset(size.width, 0f), 0.5.dp.toPx()) }
-                .padding(horizontal = 12.dp, vertical = 6.dp).testTag("drawer-footer"),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            NavEntry(MikaIcons.Gear, stringResource(R.string.settings_title), Modifier, onClick = onSettings)
-            NavEntry(MikaIcons.Info, AboutCopy.TITLE, Modifier, dot = aboutDot, onClick = onAbout)
+        // 批量删除的进度 / 结果在底部停留几秒
+        deleteBatch?.let { DeleteStatusBar(it) }
+        if (selecting) {
+            SelectBar(selectedCount, allSelected, onSelectAll, onDeleteSelected)
+        } else {
+            // 设置和关于并排固定在侧栏最底下,对话再多也不被挤走:设置靠左,关于靠右,中间留空
+            Row(
+                Modifier.fillMaxWidth().drawBehind { drawLine(c.hair, Offset(0f, 0f), Offset(size.width, 0f), 0.5.dp.toPx()) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp).testTag("drawer-footer"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                NavEntry(MikaIcons.Gear, stringResource(R.string.settings_title), Modifier, onClick = onSettings)
+                NavEntry(MikaIcons.Info, AboutCopy.TITLE, Modifier, dot = aboutDot, onClick = onAbout)
+            }
         }
+    }
+}
+
+/** 侧栏顶上的小按钮:平时的「多选」和多选中的「取消」。 */
+@Composable
+private fun HeaderAction(text: String, tag: String, color: Color, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.testTag(tag), contentPadding = PaddingValues(horizontal = 10.dp)) {
+        Text(text, style = MikaType.Label, color = color)
+    }
+}
+
+/** 多选时的底部操作条:已选几条、全选 / 取消全选、删除。 */
+@Composable
+private fun SelectBar(selectedCount: Int, allSelected: Boolean, onSelectAll: () -> Unit, onDelete: () -> Unit) {
+    val c = MikaTheme.colors
+    Row(
+        Modifier.fillMaxWidth().drawBehind { drawLine(c.hair, Offset(0f, 0f), Offset(size.width, 0f), 0.5.dp.toPx()) }
+            .padding(start = 20.dp, end = 8.dp, top = 2.dp, bottom = 2.dp).testTag("drawer-select-bar"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            tr(R.string.drawer_selected_count, selectedCount), Modifier.weight(1f),
+            style = MikaType.Label, color = c.ink2, maxLines = 1, softWrap = false,
+        )
+        TextButton(onClick = onSelectAll, modifier = Modifier.testTag("drawer-select-all")) {
+            Text(stringResource(if (allSelected) R.string.drawer_select_none else R.string.drawer_select_all), style = MikaType.Label, color = c.accent)
+        }
+        TextButton(onClick = onDelete, enabled = selectedCount > 0, modifier = Modifier.testTag("drawer-delete-selected")) {
+            Text(stringResource(R.string.confirm_delete), style = MikaType.Label, color = if (selectedCount > 0) c.bad else c.ink3)
+        }
+    }
+}
+
+/** 批量删除的进度和结果:删的时候是「正在删除 N 个对话…」,删完写成功几条、失败几条。 */
+@Composable
+private fun DeleteStatusBar(batch: DeleteBatch) {
+    val c = MikaTheme.colors
+    val deleted = batch.done - batch.failed
+    val text = when {
+        !batch.finished -> trPlural(R.plurals.drawer_delete_progress, batch.total, batch.total)
+        batch.failed == 0 -> trPlural(R.plurals.drawer_delete_done, deleted, deleted)
+        else -> trPlural(R.plurals.drawer_delete_partial, deleted, deleted, batch.failed)
+    }
+    Row(
+        Modifier.fillMaxWidth().drawBehind { drawLine(c.hair, Offset(0f, 0f), Offset(size.width, 0f), 0.5.dp.toPx()) }
+            .padding(horizontal = 20.dp, vertical = 10.dp).testTag("drawer-delete-status"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (batch.finished) {
+            Icon(
+                if (batch.failed == 0) MikaIcons.Check else MikaIcons.Exclaim, null, Modifier.size(14.dp),
+                tint = if (batch.failed == 0) c.ok else c.bad,
+            )
+        }
+        Text(text, style = MikaType.Hint, color = c.ink2, maxLines = 2)
     }
 }
 
@@ -415,6 +512,7 @@ private fun SectionLabel(text: String) {
 /**
  * 一条对话:点开它;长按(带一下振动)在原地弹出它的操作菜单(置顶、改名、删除)。换不了对话时(任务进行中、没开并行)点不开,长按照样能用。
  * 还没存进对话列表的(没有编号)没东西可改,不响应长按。置顶了的标题前有个小图钉。
+ * 多选模式([selecting])下点一行是勾选/取消,左边出现勾选框;没存过的草稿不参与。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -424,9 +522,13 @@ internal fun ConversationEntry(
     onActions: (DrawerConversation, Rect) -> Unit,
     /** 搜索结果里高亮的关键词;普通列表为空。 */
     terms: List<String> = emptyList(),
+    selecting: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelect: (DrawerConversation) -> Unit = {},
 ) {
     val c = MikaTheme.colors
     val deletable = item.id != null
+    val selectable = selecting && deletable
     val haptic = LocalHapticFeedback.current
     // 这一行在窗口里的位置和大小(不裁掉滚出列表的部分),菜单照它摆出抬起的那一行;只在回调里读,不引起重组
     val bounds = remember { mutableStateOf(Rect.Zero) }
@@ -436,19 +538,43 @@ internal fun ConversationEntry(
             .then(if (item.current) Modifier.cardSurface(c, NavShape) else Modifier)
             .clip(NavShape)
             .then(
-                if (deletable) Modifier.combinedClickable(
-                    onClickLabel = null,
-                    onLongClickLabel = stringResource(R.string.drawer_actions),
-                    // 和系统里长按一样振一下
-                    onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onActions(item, bounds.value) },
-                    onClick = { if (item.enabled) onOpen(item) },
-                ) else Modifier.clickable(enabled = item.enabled, onClick = { onOpen(item) }),
+                when {
+                    selectable -> Modifier.toggleable(value = selected, role = Role.Checkbox, onValueChange = { onToggleSelect(item) })
+                    // 多选模式里没存过的草稿不响应,免得点一下退出侧栏
+                    selecting -> Modifier
+                    deletable -> Modifier.combinedClickable(
+                        onClickLabel = null,
+                        onLongClickLabel = stringResource(R.string.drawer_actions),
+                        // 和系统里长按一样振一下
+                        onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onActions(item, bounds.value) },
+                        onClick = { if (item.enabled) onOpen(item) },
+                    )
+                    else -> Modifier.clickable(enabled = item.enabled, onClick = { onOpen(item) })
+                },
             )
             .testTag("conversation-row")
-            .alpha(if (item.enabled) 1f else 0.45f)
+            .alpha(if (item.enabled || selectable) 1f else 0.45f)
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {
-        ConversationRowContent(item, terms)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (selectable) SelectMark(selected)
+            Box(Modifier.weight(1f)) { ConversationRowContent(item, terms) }
+        }
+    }
+}
+
+/** 多选模式下每行左边的勾选框:没选是空心圆,选了是实心圆加一个白勾。 */
+@Composable
+private fun SelectMark(selected: Boolean) {
+    val c = MikaTheme.colors
+    Box(
+        Modifier.size(20.dp).clip(CircleShape)
+            .then(if (selected) Modifier.background(c.accent) else Modifier)
+            .border(1.5.dp, if (selected) c.accent else c.edge, CircleShape)
+            .testTag("conversation-check"),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) Icon(MikaIcons.Check, null, Modifier.size(13.dp), tint = c.onAccent)
     }
 }
 
@@ -535,6 +661,37 @@ internal fun DeleteConversationDialog(title: String, impact: DeleteImpact, onCon
     )
 }
 
+/**
+ * 批量删对话前的确认:写明将删除几个对话;其中有任务在跑的会停掉,绑着定时任务的写明计划会保留。
+ * 和单条删除的确认一样:右边红字「删除」,左边「取消」。
+ */
+@Composable
+internal fun DeleteManyConversationsDialog(
+    count: Int, runningTasks: Int, schedules: Int,
+    onConfirm: () -> Unit, onDismiss: () -> Unit,
+) {
+    val body = listOfNotNull(
+        trPlural(R.plurals.drawer_delete_many_body, count, count),
+        if (runningTasks > 0) trPlural(R.plurals.drawer_delete_many_running, runningTasks, runningTasks) else null,
+        if (schedules > 0) trPlural(R.plurals.drawer_delete_many_schedules, schedules, schedules) else null,
+    ).joinToString("\n")
+    MikaDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.drawer_delete_many_title)) },
+        text = { Text(body, Modifier.testTag("delete-many-conversation-body")) },
+        confirmButton = {
+            TextButton(onClick = onConfirm, Modifier.testTag("confirm-delete-many-conversation")) {
+                Text(stringResource(R.string.confirm_delete), color = MikaTheme.colors.bad)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, Modifier.testTag("dismiss-delete-many-conversation")) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
 internal const val MENU_IN_MS = 200
 internal const val MENU_OUT_MS = 140
 private val DrawerWidth = 304.dp
@@ -602,10 +759,26 @@ fun ChatWithDrawer(
     /** 搜索框里的字和已经拿到的结果;侧栏关掉就清空。 */
     var query by remember { mutableStateOf("") }
     var searchOutcome by remember { mutableStateOf<SearchOutcome?>(null) }
+    /** 多选模式:进去以后每行可勾选,底部换成批量删除的操作条;侧栏关上就退出。 */
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    /** 等用户确认的批量删除(对话编号)。 */
+    var confirmingMany by remember { mutableStateOf<List<String>?>(null) }
+    val deleteBatch by vm.deleteBatch.collectAsState()
+    // 删除结果在底部停留几秒;下一批开始前不动它
+    LaunchedEffect(deleteBatch) {
+        val batch = deleteBatch ?: return@LaunchedEffect
+        if (batch.finished) {
+            delay(if (batch.failed == 0) 2_500L else 5_000L)
+            vm.clearDeleteBatch()
+        }
+    }
     LaunchedEffect(open, search) {
         if (!open) {
             query = ""
             searchOutcome = null
+            selecting = false
+            selected = emptySet()
             // 正文索引只在侧栏开着时有用,关掉就放掉,长时间使用不会一直占着全部对话的正文
             search?.clear()
         }
@@ -616,6 +789,10 @@ fun ChatWithDrawer(
     val context = LocalContext.current
     BackHandler {
         when {
+            selecting -> {
+                selecting = false
+                selected = emptySet()
+            }
             query.isNotEmpty() -> query = ""
             open -> activity?.moveTaskToBack(true)
             else -> scope.launch { if (reduceMotion) drawer.snapTo(DrawerValue.Open) else drawer.open() }
@@ -654,6 +831,9 @@ fun ChatWithDrawer(
             acting = null
             renaming = null
             confirming = null
+            selecting = false
+            selected = emptySet()
+            confirmingMany = null
             confirmingQuit = false
             query = ""
             searchOutcome = null
@@ -726,6 +906,11 @@ fun ChatWithDrawer(
                 val sections = remember(all, current, others, canSwitch, deleted) {
                     drawerSections(all.filter { it.id !in deleted }, current, others.filter { it !in deleted }, vm::runningGoal, canSwitch, System.currentTimeMillis())
                 }
+                // 能勾的就是此刻列在侧栏里的对话;别处删了、列表变了,勾选里已经不存在的当场去掉
+                val selectableIds = remember(sections) {
+                    (sections.running + sections.pinned + sections.recent).mapNotNull { it.id }.toSet()
+                }
+                LaunchedEffect(selectableIds) { selected = selected intersect selectableIds }
                 ChatDrawer(
                     check, sections, canSwitch,
                     query = query,
@@ -753,6 +938,24 @@ fun ChatWithDrawer(
                             }
                         }
                     },
+                    selecting = selecting,
+                    selected = selected,
+                    onStartSelect = { selecting = true },
+                    onExitSelect = {
+                        selecting = false
+                        selected = emptySet()
+                    },
+                    onToggleSelect = { item ->
+                        item.id?.let { id -> selected = if (id in selected) selected - id else selected + id }
+                    },
+                    onSelectAll = {
+                        selected = if (selectableIds.isNotEmpty() && selectableIds.all { it in selected }) emptySet() else selectableIds
+                    },
+                    onDeleteSelected = {
+                        val ids = selectableIds.filter { it in selected }
+                        if (ids.isNotEmpty()) confirmingMany = ids
+                    },
+                    deleteBatch = deleteBatch,
                 )
             },
             drawerState = drawer,
@@ -793,6 +996,22 @@ fun ChatWithDrawer(
                 item.id?.let(vm::deleteConversation)
             },
             onDismiss = { confirming = null },
+        )
+    }
+    confirmingMany?.let { ids ->
+        // 弹窗里要写几条任务会停、几条定时任务保留;打开时算一次就够
+        val impacts = remember(ids) { ids.map(vm::deleteImpact) }
+        DeleteManyConversationsDialog(
+            count = ids.size,
+            runningTasks = impacts.count { it.runningTask },
+            schedules = impacts.sumOf { it.schedules },
+            onConfirm = {
+                confirmingMany = null
+                selecting = false
+                selected = emptySet()
+                vm.deleteConversations(ids)
+            },
+            onDismiss = { confirmingMany = null },
         )
     }
     if (confirmingQuit) {

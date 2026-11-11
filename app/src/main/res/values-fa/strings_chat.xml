@@ -69,6 +69,35 @@
         <item quantity="one">%1$d کار زمان‌بندی‌شده در این گفتگو حفظ می‌شود.</item>
         <item quantity="other">%1$d کار زمان‌بندی‌شده در این گفتگو حفظ می‌شود.</item>
     </plurals>
+    <string name="drawer_select">انتخاب</string>
+    <string name="drawer_selected_count">%1$d مورد انتخاب شده</string>
+    <string name="drawer_select_all">انتخاب همه</string>
+    <string name="drawer_select_none">لغو انتخاب</string>
+    <string name="drawer_delete_many_title">گفتگوهای انتخاب‌شده حذف شوند؟</string>
+    <plurals name="drawer_delete_many_body">
+        <item quantity="one">%1$d گفتگوی انتخاب‌شده و فایل‌های داخل آن حذف می‌شود.</item>
+        <item quantity="other">%1$d گفتگوی انتخاب‌شده و فایل‌های داخلشان حذف می‌شوند.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_running">
+        <item quantity="one">%1$d کار در حال اجرا متوقف می‌شود.</item>
+        <item quantity="other">%1$d کار در حال اجرا متوقف می‌شوند.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_schedules">
+        <item quantity="one">%1$d کار زمان‌بندی‌شده در آن‌ها حفظ می‌شود.</item>
+        <item quantity="other">%1$d کار زمان‌بندی‌شده در آن‌ها حفظ می‌شود.</item>
+    </plurals>
+    <plurals name="drawer_delete_progress">
+        <item quantity="one">در حال حذف %1$d گفتگو…</item>
+        <item quantity="other">در حال حذف %1$d گفتگو…</item>
+    </plurals>
+    <plurals name="drawer_delete_done">
+        <item quantity="one">%1$d گفتگو حذف شد.</item>
+        <item quantity="other">%1$d گفتگو حذف شد.</item>
+    </plurals>
+    <plurals name="drawer_delete_partial">
+        <item quantity="one">%1$d گفتگو حذف شد، %2$d ناموفق بود.</item>
+        <item quantity="other">%1$d گفتگو حذف شد، %2$d ناموفق بود.</item>
+    </plurals>
     <string name="drawer_actions">گزینه‌های گفتگو</string>
     <string name="drawer_rename">تغییر نام</string>
     <string name="drawer_rename_title">تغییر نام گفتگو</string>
@@ -100,6 +129,7 @@
     </plurals>
     <string name="attach_add">افزودن پیوست</string>
     <string name="attach_close">بستن بخش پیوست‌ها</string>
+    <string name="attach_blocked_running">هنگام اجرای کار نمی‌توان پیوست اضافه کرد — ابتدا به حالت صف بروید</string>
     <string name="attach_camera">دوربین</string>
     <string name="attach_album">عکس‌ها</string>
     <string name="attach_files">فایل‌ها</string>
@@ -202,6 +232,10 @@
     <string name="recommendations_save_failed">ذخیره ممکن نشد. دوباره تلاش کنید.</string>
     <string name="recommendations_sub">مدیریت کارها و متن‌های صفحهٔ اصلی</string>
     <string name="recommendations_title">کارهای پیشنهادی</string>
+    <string name="recommendations_drag">برای تغییر ترتیب بکشید</string>
+    <string name="recommendations_drag_hint">دستگیره را بکشید تا ترتیب نمایش تغییر کند.</string>
+    <string name="recommendations_move_up">انتقال به بالا</string>
+    <string name="recommendations_move_down">انتقال به پایین</string>
     <string name="recommendations_title_label">عنوان</string>
     <string name="recommendations_title_required">عنوانی وارد کنید</string>
     <string name="recommendations_too_long">عنوان یا متن بیش از حد طولانی است</string>

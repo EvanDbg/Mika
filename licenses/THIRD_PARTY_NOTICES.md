@@ -1,5 +1,16 @@
 # Third-party notices
 
+## 通话功能（calls/）实现
+
+- Source: https://github.com/DzsGatsby/FlashPhone（Mika 的 Apache-2.0 fork）
+- License: Apache-2.0
+- Usage: 通话功能（拨号、接听、挂断、AI 接听、人工接管、PCM 音频桥、实时语音客户端）按上游
+  Apache-2.0 许可并入,涉及:
+  - `app/src/main/java/com/wangzan101/mika/calls/`
+  - `app/src/main/java/com/wangzan101/mika/cap/phone/shell/ShellCallAudio.kt`
+  - `core/src/main/kotlin/com/wangzan101/mika/core/calls/`
+- Service: 实时语音经火山引擎（Volcengine）的 WebSocket 接口,凭证由用户在通话设置页填写。
+
 ## scrcpy
 
 - Project: https://github.com/Genymobile/scrcpy

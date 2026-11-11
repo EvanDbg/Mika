@@ -32,6 +32,25 @@ class RecommendedTaskStoreTest {
         assertFalse(File(tmp.root, "recommended-tasks.json.tmp").exists())
     }
 
+    @Test fun reorderedTasksPersistAndStaleOrdersCannotLoseTasks() {
+        val tasks = store()
+        tasks.ensureLoaded { listOf("一" to "提示一", "二" to "提示二", "三" to "提示三") }
+        val original = tasks.tasks.value
+        val order = original.map { it.id }.reversed()
+        assertNull(tasks.reorder(order))
+        val reloaded = store()
+        reloaded.ensureLoaded { emptyList() }
+        assertEquals(order, reloaded.tasks.value.map { it.id })
+        assertEquals(RecommendedTaskError.SaveFailed, tasks.reorder(order.dropLast(1)))
+        assertEquals(RecommendedTaskError.SaveFailed, tasks.reorder(listOf(order[0], order[0], order[1])))
+        assertEquals(order, tasks.tasks.value.map { it.id })
+        val file = File(tmp.root, "recommended-tasks.json")
+        assertTrue(file.delete())
+        assertTrue(file.mkdir())
+        assertEquals(RecommendedTaskError.SaveFailed, tasks.reorder(original.map { it.id }))
+        assertEquals(order, tasks.tasks.value.map { it.id })
+    }
+
     @Test fun emptyListStaysEmpty() {
         val file = File(tmp.root, "recommended-tasks.json")
         val first = RecommendedTaskStore(file) { "id" }

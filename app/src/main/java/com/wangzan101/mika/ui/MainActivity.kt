@@ -82,6 +82,7 @@ import com.wangzan101.mika.ui.theme.systemBarsFor
 class MainActivity : ComponentActivity() {
     private lateinit var monitor: SystemStatusMonitor
     private var requestedConversation by mutableStateOf<String?>(null)
+    private var requestedCalls by mutableStateOf(false)
     private var openTeach by mutableStateOf(false)
     private var requestedSharedDraft by mutableStateOf<SharedDraftRequest?>(null)
     private var shareJob: Job? = null
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
             (application as MikaApp).chat.cancelPendingSharedDraft()
         }
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
+        requestedCalls = intent.getBooleanExtra(EXTRA_OPEN_CALLS, false)
         takeTeach(intent)
         shareInCurrent = savedInstanceState?.getBoolean(STATE_SHARE_IN_CURRENT, false) ?: false
         shareHandled = savedInstanceState?.getBoolean(STATE_SHARE_HANDLED, false) ?: false
@@ -124,7 +126,7 @@ class MainActivity : ComponentActivity() {
                 // 在输入框外面点一下或拖动就收起键盘,全 App 统一
                 KeyboardDismissArea(Modifier.fillMaxSize()) {
                     MikaRoot(
-                        store, monitor, ::perform, requestedConversation, { requestedConversation = null }, requestedSharedDraft,
+                        store, monitor, ::perform, requestedConversation, { requestedConversation = null }, requestedCalls, { requestedCalls = false }, requestedSharedDraft,
                         onSharedDraftOpened = { accepted, draft ->
                             requestedSharedDraft = null
                             shareHandled = true
@@ -149,6 +151,7 @@ class MainActivity : ComponentActivity() {
         val app = application as MikaApp
         shareJob?.cancel()
         requestedConversation = intent.getStringExtra(EXTRA_OPEN_CONVERSATION)
+        requestedCalls = intent.getBooleanExtra(EXTRA_OPEN_CALLS, false)
         if (requestedConversation != null || intent.getBooleanExtra(EXTRA_OPEN_TEACH, false)) {
             app.chat.cancelPendingSharedDraft()
         }
@@ -322,6 +325,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_CONVERSATION = "open_conversation"
+        const val EXTRA_OPEN_CALLS = "open_calls"
         const val EXTRA_OPEN_TEACH = "open_teach"
         const val EXTRA_TEACH_GOAL = "teach_goal"
         private const val STATE_SHARE_IN_CURRENT = "share_in_current"
@@ -355,6 +359,8 @@ private fun MikaRoot(
     activityFix: (Fix) -> Unit,
     requestedConversation: String?,
     onConversationOpened: () -> Unit,
+    requestedCalls: Boolean,
+    onCallsOpened: () -> Unit,
     sharedDraft: SharedDraftRequest?,
     onSharedDraftOpened: (Boolean, SharedDraft) -> Unit,
     openTeach: Boolean,
@@ -395,6 +401,12 @@ private fun MikaRoot(
             app.chat.openConversation(requestedConversation)
             nav.reset()
             onConversationOpened()
+        }
+    }
+    LaunchedEffect(requestedCalls) {
+        if (requestedCalls) {
+            nav.push(Route.Calls)
+            onCallsOpened()
         }
     }
     LaunchedEffect(sharedDraft) {
@@ -656,5 +668,6 @@ private fun MikaRoot(
             app.chat.openConversation(it)
             nav.reset()
         })
+        Route.Calls -> CallSettingsScreen(app.calls, onBack = back, standalone = true)
     }
 }

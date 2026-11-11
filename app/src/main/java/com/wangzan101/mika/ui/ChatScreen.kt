@@ -420,6 +420,8 @@ fun ChatScreen(
                     AttachPanelHost(ui.attachments, onPicked = { vm.attach(it, ui.conversationId) }, onToggle = vm::toggleAttachment)
                 }
             }) else null,
+            // 附件功能开着但此刻不能加(任务在跑、插话模式):「＋」保留,点了提示切队列
+            attachBlocked = ui.attachEnabled && ui.composer != ComposerMode.Idle && ui.followUpMode == FollowUpMode.Steer,
             attachments = ui.attachments,
             importing = ui.importing,
             rejected = ui.rejectedAttachments,
@@ -1294,6 +1296,8 @@ internal fun Composer(
     followUpStatus: ExchangeStatus? = null,
     /** 沙箱就绪、没有任务在跑时才有「＋」;点开是这块面板。 */
     attachPanel: (@Composable () -> Unit)? = null,
+    /** 附件已启用但此刻不能加(任务在跑、插话模式):「＋」还在,点了提示改切队列。 */
+    attachBlocked: Boolean = false,
     /** 「＋」面板里的「教 Mika」。点了先收起面板。 */
     onTeach: (() -> Unit)? = null,
     attachments: List<PendingAttachment> = emptyList(),
@@ -1328,6 +1332,9 @@ internal fun Composer(
     // 底部从页面底色淡出到透明,输入栏是浮在上面的玻璃
     val fade = remember(c) { Brush.verticalGradient(0f to c.bg.copy(alpha = 0f), 0.6f to c.bg, 1f to c.bg) }
     val busy = mode == ComposerMode.Busy
+    val context = LocalContext.current
+    // 附件功能开着就保留「＋」;任务在跑、插话模式时点它只提示,不展开面板
+    val showAttach = attachPanel != null || attachBlocked
     val density = LocalDensity.current
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -1426,17 +1433,22 @@ internal fun Composer(
             }
             Box(Modifier.fillMaxWidth()) {
             GlassBar(Modifier.fillMaxWidth().keepsKeyboard(), backdrop) {
-                if (attachPanel != null) {
+                if (showAttach) {
                     val label = if (panel == Panel.Open) AttachCopy.CLOSE else AttachCopy.ADD
+                    val blockedHint = stringResource(R.string.attach_blocked_running)
                     Box(
                         Modifier.size(MikaSize.IconButton).clip(CircleShape)
-                            .clickable(enabled = !importing, onClickLabel = label, onClick = togglePanel),
+                            .clickable(enabled = !importing, onClickLabel = label, onClick = {
+                                if (attachBlocked) {
+                                    Toast.makeText(context, blockedHint, Toast.LENGTH_SHORT).show()
+                                } else togglePanel()
+                            }),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(MikaIcons.Plus, label, Modifier.size(MikaSize.Icon).graphicsLayer { rotationZ = turn }, tint = c.ink)
                     }
                 }
-                Box(Modifier.weight(1f).padding(start = if (attachPanel != null) 2.dp else 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
+                Box(Modifier.weight(1f).padding(start = if (showAttach) 2.dp else 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
                     val converting = vState is HoldToTalk.State.Converting
                     if (text.isEmpty() && !converting) {
                         if (vh != null) VoicePlaceholder(mode, followUpMode)

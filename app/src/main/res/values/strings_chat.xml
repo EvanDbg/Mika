@@ -14,6 +14,10 @@
     <string name="chat_example_replace_body">This recommendation will replace what you’ve already typed.</string>
     <string name="chat_example_replace_action">Replace draft</string>
     <string name="recommendations_title">Recommended tasks</string>
+    <string name="recommendations_drag">Drag to reorder</string>
+    <string name="recommendations_drag_hint">Drag the handle to change the order.</string>
+    <string name="recommendations_move_up">Move up</string>
+    <string name="recommendations_move_down">Move down</string>
     <string name="recommendations_sub">Manage the tasks and prompts on the home screen</string>
     <string name="recommendations_add">Add recommended task</string>
     <string name="recommendations_edit">Edit recommended task</string>
@@ -91,6 +95,35 @@
         <item quantity="one">%1$d scheduled task in this chat will be kept.</item>
         <item quantity="other">%1$d scheduled tasks in this chat will be kept.</item>
     </plurals>
+    <string name="drawer_select">Select</string>
+    <string name="drawer_selected_count">%1$d selected</string>
+    <string name="drawer_select_all">Select all</string>
+    <string name="drawer_select_none">Clear</string>
+    <string name="drawer_delete_many_title">Delete selected chats?</string>
+    <plurals name="drawer_delete_many_body">
+        <item quantity="one">Will delete %1$d chat and the files in it.</item>
+        <item quantity="other">Will delete %1$d chats and the files in them.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_running">
+        <item quantity="one">%1$d running task will be stopped.</item>
+        <item quantity="other">%1$d running tasks will be stopped.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_schedules">
+        <item quantity="one">%1$d scheduled task in them will be kept.</item>
+        <item quantity="other">%1$d scheduled tasks in them will be kept.</item>
+    </plurals>
+    <plurals name="drawer_delete_progress">
+        <item quantity="one">Deleting %1$d chat…</item>
+        <item quantity="other">Deleting %1$d chats…</item>
+    </plurals>
+    <plurals name="drawer_delete_done">
+        <item quantity="one">Deleted %1$d chat.</item>
+        <item quantity="other">Deleted %1$d chats.</item>
+    </plurals>
+    <plurals name="drawer_delete_partial">
+        <item quantity="one">Deleted %1$d chat, %2$d failed.</item>
+        <item quantity="other">Deleted %1$d chats, %2$d failed.</item>
+    </plurals>
     <string name="drawer_actions">Chat options</string>
     <string name="drawer_rename">Rename</string>
     <string name="drawer_rename_title">Rename chat</string>
@@ -129,6 +162,7 @@
     </plurals>
     <string name="attach_add">Add attachment</string>
     <string name="attach_close">Close attachment panel</string>
+    <string name="attach_blocked_running">Can’t add attachments while a task is running — switch to queue mode to attach first</string>
     <string name="attach_camera">Camera</string>
     <string name="attach_album">Photos</string>
     <string name="attach_files">Files</string>

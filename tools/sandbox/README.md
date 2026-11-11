@@ -62,6 +62,7 @@ tools/sandbox/build-native.sh --check   # 只重编并与仓库里的产物比�
 每次发布 APK,都要把 `sources.lock` 列出的源码包、`patches/`、编译脚本和许可证打包成 `mika-<版本>-gpl-sources.tar.gz`,和 APK 放在同一个发布页。在仓库根目录运行:
 
 ```bash
+set -euo pipefail   # 任何一步失败就停,不产出缺源码的包
 VERSION=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
 NAME=mika-$VERSION-gpl-sources
 OUT=build/gpl-sources/$NAME

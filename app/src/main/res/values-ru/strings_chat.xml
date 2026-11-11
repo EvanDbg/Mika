@@ -14,6 +14,10 @@
     <string name="chat_example_replace_body">Рекомендуемая задача заменит уже введённый текст.</string>
     <string name="chat_example_replace_action">Заменить черновик</string>
     <string name="recommendations_title">Рекомендуемые задачи</string>
+    <string name="recommendations_drag">Перетащите для изменения порядка</string>
+    <string name="recommendations_drag_hint">Перетащите значок, чтобы изменить порядок отображения.</string>
+    <string name="recommendations_move_up">Переместить вверх</string>
+    <string name="recommendations_move_down">Переместить вниз</string>
     <string name="recommendations_sub">Управляйте задачами и подсказками на главном экране</string>
     <string name="recommendations_add">Добавить задачу</string>
     <string name="recommendations_edit">Изменить задачу</string>
@@ -95,6 +99,47 @@
         <item quantity="many">В этом чате будут сохранены %1$d задач по расписанию.</item>
         <item quantity="other">В этом чате будет сохранена %1$d задача по расписанию.</item>
     </plurals>
+    <string name="drawer_select">Выбрать</string>
+    <string name="drawer_selected_count">Выбрано: %1$d</string>
+    <string name="drawer_select_all">Выбрать все</string>
+    <string name="drawer_select_none">Снять выбор</string>
+    <string name="drawer_delete_many_title">Удалить выбранные чаты?</string>
+    <plurals name="drawer_delete_many_body">
+        <item quantity="one">Будет удалён %1$d чат и файлы в нём.</item>
+        <item quantity="few">Будут удалены %1$d чата и файлы в них.</item>
+        <item quantity="many">Будет удалено %1$d чатов и файлы в них.</item>
+        <item quantity="other">Будет удалено %1$d чата и файлы в них.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_running">
+        <item quantity="one">Будет остановлена %1$d выполняемая задача.</item>
+        <item quantity="few">Будут остановлены %1$d выполняемые задачи.</item>
+        <item quantity="many">Будет остановлено %1$d выполняемых задач.</item>
+        <item quantity="other">Будет остановлено %1$d выполняемой задачи.</item>
+    </plurals>
+    <plurals name="drawer_delete_many_schedules">
+        <item quantity="one">Будет сохранена %1$d задача по расписанию в них.</item>
+        <item quantity="few">Будут сохранены %1$d задачи по расписанию в них.</item>
+        <item quantity="many">Будет сохранено %1$d задач по расписанию в них.</item>
+        <item quantity="other">Будет сохранено %1$d задачи по расписанию в них.</item>
+    </plurals>
+    <plurals name="drawer_delete_progress">
+        <item quantity="one">Удаление %1$d чата…</item>
+        <item quantity="few">Удаление %1$d чатов…</item>
+        <item quantity="many">Удаление %1$d чатов…</item>
+        <item quantity="other">Удаление %1$d чата…</item>
+    </plurals>
+    <plurals name="drawer_delete_done">
+        <item quantity="one">Удалён %1$d чат.</item>
+        <item quantity="few">Удалено %1$d чата.</item>
+        <item quantity="many">Удалено %1$d чатов.</item>
+        <item quantity="other">Удалено %1$d чата.</item>
+    </plurals>
+    <plurals name="drawer_delete_partial">
+        <item quantity="one">Удалён %1$d чат, %2$d не удалось.</item>
+        <item quantity="few">Удалено %1$d чата, %2$d не удалось.</item>
+        <item quantity="many">Удалено %1$d чатов, %2$d не удалось.</item>
+        <item quantity="other">Удалено %1$d чата, %2$d не удалось.</item>
+    </plurals>
     <string name="drawer_actions">Действия с чатом</string>
     <string name="drawer_rename">Переименовать</string>
     <string name="drawer_rename_title">Переименовать чат</string>
@@ -137,6 +182,7 @@
     </plurals>
     <string name="attach_add">Добавить вложение</string>
     <string name="attach_close">Закрыть панель вложений</string>
+    <string name="attach_blocked_running">Пока выполняется задача, вложения добавить нельзя — сначала переключитесь в режим очереди</string>
     <string name="attach_camera">Камера</string>
     <string name="attach_album">Фото</string>
     <string name="attach_files">Файлы</string>

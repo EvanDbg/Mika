@@ -819,6 +819,9 @@ class TaskRun(
                 ownerAlive = { job?.isActive == true },
             ).also { children = it } else null
             val tools = toolDispatcher(accessedPhone, model.capabilities.vision, catalog, recordFrames = true, vision = vision?.let { VisionService(it, BitmapImageOps) },
+                phoneCalls = (service.application as MikaApp).callPort.takeIf {
+                    !conditionCheck && (service.application as MikaApp).calls.settings.state.value.enabled
+                },
                 // 设置里允许 Mika 改自己时,才把 settings_list、settings_set 发给模型
                 selfConfig = if (FeatureFlags.get(service).selfConfig()) {
                     com.wangzan101.mika.settings.SelfConfigImpl(FeatureFlags.get(service))

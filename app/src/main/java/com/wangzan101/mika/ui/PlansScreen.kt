@@ -178,7 +178,7 @@ private fun PlanRow(plan: TriggerDefinition, last: TriggerWindow?, first: Boolea
             val days = if (plan.calendarDays.isEmpty()) tr(R.string.plans_every_day) else plan.calendarDays.joinToString(tr(R.string.list_sep)) {
                 if (it in 1..7) java.time.DayOfWeek.of(it).getDisplayName(java.time.format.TextStyle.SHORT, uiLocale()) else "?"
             }
-            "$days ${plan.calendarTime} (${plan.calendarZone})"
+            "$days ${plan.calendarClocks().joinToString(tr(R.string.list_sep))} (${plan.calendarZone})"
         }
         plan.intervalMs != null -> trPlural(R.plurals.plans_every_minutes, (plan.intervalMs!! / 60_000).toInt())
         else -> tr(R.string.plans_once)
